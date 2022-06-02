@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2025 Aleks Grochowicz & Koen van Greevenbroek
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: snakemake
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - python
+  - mamba
+  - snakemake

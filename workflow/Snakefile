@@ -1,0 +1,205 @@
+# SPDX-FileCopyrightText: 2025 Aleksander Grochowicz & Koen van Greevenbroek
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+import os
+import re
+import yaml
+import snakemake
+from pathlib import Path
+
+from scripts.workflow_utilities import hash_config
+
+
+# Each snakemake run is defined by a named configuration file, which
+# is given as a command-line argument. This name is constant for the
+# whole snakemake run.
+run_name = config["name"]
+results_dir = "results/" + run_name
+networks_dir = "networks/" + run_name
+
+# Create cache folder with a hash so that we could reuse previous runs
+# with the same configuration and keep track of the configuration
+# files. Does not hash the values iterations, conv_epsilon,
+# conv_iterations of the "near_opt_approx" config.
+hash_run = hash_config(config)
+cache_dir = Path(workflow.current_basedir).parent / "cache" / run_name / hash_run
+debug_dir = Path(workflow.current_basedir).parent / "debug" / run_name / hash_run
+config_file = cache_dir / f"config-{run_name}.yaml"
+cache_dir.mkdir(parents=True, exist_ok=True)
+with open(config_file, "w") as f:
+    yaml.dump(config, f)
+
+print(
+    f"If running compute_near_opt, using cache directory 'cache/{run_name}/{hash_run}'"
+)
+
+# Set the number of threads to use for network optimisations.
+# Note: This may need to be changed if a different solver than Gurobi is used.
+grb_threads = config["solving"]["threads"]
+parallel_threads = grb_threads * config["near_opt_approx"]["num_parallel_solvers"]
+
+
+wildcard_constraints:
+    # {eps} for 'epsilon' is a floating point number
+    eps=r"[0-9\.]+",
+
+
+rule compute_optimum:
+    input:
+        network=os.path.join(networks_dir, "{name}.nc"),
+    output:
+        optimum=os.path.join(results_dir, "optimum/{name}.nc"),
+        obj=os.path.join(results_dir, "optimum/{name}.obj"),
+        optimal_point=os.path.join(results_dir, "optimum/{name}.csv"),
+    log:
+        os.path.join("logs", run_name, "optimum/{name}.log"),
+    benchmark:
+        os.path.join("benchmarks", run_name, "optimum/{name}.tsv")
+    conda:
+        "envs/maa.fixed.yaml"
+    resources:
+        mem_mb=10000,
+        runtime=100,
+    threads: grb_threads
+    shadow:
+        "copy-minimal"
+    script:
+        "scripts/compute_optimum.py"
+
+
+def near_opt_memory(wildcards):
+    return config["near_opt_approx"].get("num_parallel_solvers", 1) * 10000
+
+
+rule mga:
+    input:
+        network=os.path.join(results_dir, "optimum/{name}.nc"),
+        optimum=os.path.join(results_dir, "optimum/{name}.csv"),
+        opt_obj=os.path.join(results_dir, "optimum/{name}.obj"),
+    output:
+        mga_space=os.path.join(results_dir, "mga/{name}_e{eps}.csv"),
+    params:
+        iterations=os.path.join(
+            debug_dir,
+            "mga/{name}_e{eps}",
+        ),
+    log:
+        os.path.join("logs", run_name, "mga/{name}_e{eps}.log"),
+    conda:
+        "envs/maa.fixed.yaml"
+    resources:
+        mem_mb=near_opt_memory,
+        runtime=100,
+    # Make snakemake prioritise finishing these runs before compute_near_opt
+    priority: 10
+    threads: parallel_threads
+    shadow:
+        "copy-minimal"
+    script:
+        "scripts/mga.py"
+
+
+def near_opt_runtime(wildcards):
+    """Upper bound on near-opt approx runtime in minutes."""
+    num_parallel = int(config["near_opt_approx"].get("num_parallel_solvers", 1))
+    num_opts = int(config["near_opt_approx"]["iterations"])
+    # Give some slack (factor of 1.2) just in case.
+    return 1.2 * (num_opts / num_parallel) * 5
+
+
+rule compute_near_opt:
+    input:
+        network=os.path.join(results_dir, "optimum/{name}.nc"),
+        mga_space=os.path.join(results_dir, "mga/{name}_e{eps}.csv"),
+        opt_obj=os.path.join(results_dir, "optimum/{name}.obj"),
+    params:
+        iterations=os.path.join(
+            debug_dir,
+            "near_opt/{name}_e{eps}",
+        ),
+        cache=os.path.join(
+            cache_dir,
+            "near_opt/{name}_e{eps}",
+        ),
+    output:
+        near_opt=os.path.join(results_dir, "near_opt/{name}_e{eps}.csv"),
+    log:
+        os.path.join("logs", run_name, "near_opt/{name}_e{eps}.log"),
+    benchmark:
+        os.path.join("benchmarks", run_name, "near_opt/{name}_e{eps}.tsv")
+    conda:
+        "envs/maa.fixed.yaml"
+    resources:
+        mem_mb=near_opt_memory,
+        runtime=lambda wildcards: near_opt_runtime(wildcards),
+    threads: parallel_threads
+    shadow:
+        "copy-minimal"
+    script:
+        "scripts/compute_near_opt.py"
+
+
+def sample_resources(wildcards):
+    num_samples = 0
+    for level_set in config["sample"]["level_sets"]:
+        num_samples += level_set["samples"] * int(
+            (level_set["max_level"] - level_set["min_level"]) / level_set["step"]
+        )
+    runtime = 100 * (num_samples / config["sample"]["num_parallel"])
+    return runtime
+
+
+def sample_inputs(wildcards):
+    level_sets = config["sample"]["level_sets"]
+    slacks = []
+    for level_set in level_sets:
+        # multiple by 100 for numerical reasons
+        slacks.extend(
+            range(
+                int(100 * level_set["min_level"]),
+                int(100 * level_set["max_level"]),
+                int(100 * level_set["step"]),
+            )
+        )
+    slacks = [s / 100 for s in slacks]
+    return [
+        os.path.join(
+            results_dir,
+            f"near_opt/{wildcards.name}_e{slack}.csv",
+        )
+        for slack in slacks
+    ]
+
+
+rule sample_near_opt_space:
+    input:
+        network=os.path.join(results_dir, "optimum/{name}.nc"),
+        near_opt=sample_inputs,
+    params:
+        num_parallel=config["sample"]["num_parallel"],
+        networks_dir=os.path.join(debug_dir, "samples"),
+    output:
+        samples=os.path.join(
+            results_dir,
+            "samples",
+            "{name}_samples.csv",
+        ),
+        metrics=os.path.join(
+            results_dir,
+            "samples",
+            "{name}_metrics.csv",
+        ),
+    log:
+        os.path.join("logs", run_name, "samples/{name}.log"),
+    conda:
+        "envs/maa.fixed.yaml"
+    resources:
+        mem_mb=10000 * config["sample"]["num_parallel"],
+        runtime=sample_resources,
+        disk_mb=2000 * config["sample"]["num_parallel"],
+    threads: config["sample"]["num_parallel"] * grb_threads
+    shadow:
+        "copy-minimal"
+    script:
+        "scripts/sample_near-opt_space.py"

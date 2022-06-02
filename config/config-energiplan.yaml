@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: 2024 Aleksander Grochowicz & Koen van Greevenbroek
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# The name needs to match the filename of this config.
+name: "energiplan"
+
+# The following config section relates to how the near-optimal
+# feasible space is approximated.
+near_opt_approx:
+  # Essential configuration:
+  
+  # Direction generation method, either "facets", "random-uniform",
+  # "random-lhc", "maximal-centre" or "maximal-centre-then-facets".
+  directions: "maximal-centre-then-facets-then-random"
+  # Minimum angle threshold between directions.
+  directions_angle_separation: 45
+  # The number of parallel solvers used in the near-optimal feasible
+  # space approximation.
+  num_parallel_solvers: 8
+
+  # Convergence configuration. All in all, the below means that the
+  # near-optimal space approximation will terminate when the volume
+  # changes by less than `conv_epsilon` percent for any `conv_iterations` 
+  # consecutive iterations, or after `iterations` iterations at most. 
+  # Number of iterations.
+  # iterations: 100
+  iterations: 10
+  # Convergence method, either "centre" or "volume".
+  conv_method: "volume"
+  # Convergence epsilon in percent.
+  conv_epsilon: 0.5
+  # Number of iterations for which the convergence criterion must be
+  # below the convergence epsilon before the approximation stops.
+  conv_iterations: 200
+
+  # Command line options for the `qhull` program, which is used to
+  # compute convex hulls, may be defined here. Whatever the options
+  # used, it should work well with inputs that are scaled to the unit
+  # cube. (See http://www.qhull.org/html/qh-optq.htm for more details
+  # about options).
+  qhull_options:
+    # Used for routine convex hull computations (e.g. in compute_near_opt)
+    near_opt: "Qt"
+    # Used when an approximate convex hull computation is needed
+    # (input spaces in intersection computation)
+    near_opt_approx: "Qt C5e-3 W1e-2"
+    # Used for halfspace intersection computations
+    intersection: "Qt C5e-3 W1e-2"
+
+  # Angle tolerance: when no new directions are found which are at
+  # least this number of degrees away from previously used directions,
+  # we stop the approximation.
+  # angle_tolerance: 0.1
+
+# Specification of the sample points we want from the approximated near-optimal space.
+sample:
+# Note that all these level sets trigger the computation of a near-optimal space with the above number of iterations specified in near_opt_approx.
+  level_sets:
+  - {min_level: 0.01, step: 0.01, max_level: 0.1, samples: 3000} # only left included
+  - {min_level: 0.1, step: 0.02, max_level: 0.2, samples: 3000}
+  - {min_level: 0.2, step: 0.1, max_level: 0.5, samples: 3000}
+  - {min_level: 0.5, step: 0.25, max_level: 1.25, samples: 3000} # only left included
+  # Number of parallel solvers.
+  num_parallel: 24
+  metrics:
+  - "electricity_price"
+  - "heat_price"
+  - "emissions"
+  - "visual_impact"
+  - "land_use"
+  - "vulnerability"
+  - "slack"
+
+# Specification of the basis we project the near-optimal feasible space onto. 
+projection:
+  wind:
+  - {c: "Generator", v: "p_nom", carrier: "Wind", weight: "capital_cost"}
+  solar:
+  - {c: "Generator", v: "p_nom", carrier: "Solar", weight: "capital_cost"}
+  h2:
+  - {c: "Store", v: "e_nom", carrier: "H2", weight: "capital_cost"}
+  - {c: "Link", v: "p_nom", index: "H2 electrolyser", weight: "capital_cost"}
+  - {c: "Link", v: "p_nom", index: "H2 fuel cell", weight: "capital_cost"}
+  green-imports:
+  - {c: "Generator", v: "p_nom", carrier: "NH3", weight: "capital_cost"}
+  - {c: "Generator", v: "p_nom", carrier: "Bio-fuel", weight: "capital_cost"} 
+  - {c: "Generator", v: "p_nom", carrier: "Pellets", weight: "capital_cost"}
+  heat-storage:
+  - {c: "Link", v: "p_nom", index: "Geothermal heat pump", weight: "capital_cost"}
+  - {c: "Store", v: "e_nom", index: "Thermos", weight: "capital_cost"}
+  - {c: "Store", v: "e_nom", index: "Geothermal storage", weight: "capital_cost"}
+
+# Provide some readable labels of the above dimensions for figures.
+projection_labels:
+  onwind: "Wind"
+  solar: "Solar"
+  h2: "Hydrogen"
+  green-imports: "Green fuel imports"
+  heat-storage: "Heat storage"
+  
+
+# Apply some formatting to the logging so each entry shows the time it was logged.
+logging:
+  format: "%(asctime)s %(levelname)s %(module)s - %(funcName)s: %(message)s"
+  datefmt: "%Y-%m-%d %H:%M:%S"
+
+solving:
+  tmpdir: "./tmp"
+  threads: 2
+  solver:
+    name: gurobi
+    threads: 2
+    method: 2
+    crossover: 0
+    BarConvTol: 1.e-5
+    FeasibilityTol: 1.e-6
+    AggFill: 0
+    PreDual: 0
+    GURO_PAR_BARDENSETHRESH: 200
+
+
+
