@@ -53,6 +53,7 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
     for key, dim in basis.items():
         summands = []
         for spec in dim:
+            # TODO: Update to linopy.
             # First, get the respecified variables for _all_
             # components of the given type, for example p_nom for
             # _all_ generators.
@@ -68,49 +69,7 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
                     .index
                 ]
 
-            # If specified, narrow down to a given region. The
-            # "region" will be given as a list of countries, where
-            # each country as represented as a two-letter code. To
-            # check the country of a component, we check the bus name;
-            # each bus will start with a country code. For example, a
-            # bus might be called "UK0 0 H2"; this is a hydrogen bus
-            # in the UK.
-
-            # There are two potential complications. First, a bus
-            # might represent multiple aggregated countries, in which
-            # case its name will look like "UK0_IR0_... H2" (for
-            # example). Secondly, if the component at hand is a link
-            # or line, it might be located "between" two countries,
-            # and might have one side located inside the focus region
-            # and one side outside of the focus region. In this case,
-            # we include the component in the basis if either side is
-            # located in the focus region.
-            if "regions" in spec:
-                region = spec["regions"]
-                bus_columns = (
-                    ["bus0", "bus1"] if spec["c"] in ["Link", "Line"] else ["bus"]
-                )
-
-                # Extract a list of countries associated to each variable.
-                var_countries = (
-                    n.df(spec["c"])
-                    .loc[vars.index]
-                    .apply(
-                        lambda l: [
-                            c.strip("0123456789")  # E.g. "UK0" -> "UK"
-                            for bc in bus_columns
-                            for c in l[bc].split(" ")[0].split("_")
-                        ],
-                        axis="columns",
-                    )
-                )
-
-                # Filter down to variables that are connected to the region.
-                vars_in_region = var_countries.apply(
-                    lambda cs: len(set(cs).intersection(set(region))) > 0
-                )
-                vars = vars.loc[vars_in_region]
-
+            #TODO: Update to linopy
             # Extract coefficients.
             coeffs = pd.Series(1, index=vars.index)
             if "weight" in spec:
@@ -133,51 +92,7 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
                 # time-frame of the network. Disregard leap years.
                 coeffs /= n.snapshot_weightings.objective.sum() / 8760
 
-            if "regions" in spec and spec["c"] in ["Link", "Line"]:
-                # For links and lines where one side is in the region
-                # and the other side outside the region, we divide the
-                # coefficients by two. Get the countries associated to
-                # each side of the line/link, and check if they are in
-                # the region.
-                bus0_countries = (
-                    n.df(spec["c"])
-                    .loc[vars.index]
-                    .apply(
-                        lambda l: [
-                            c.strip("0123456789")  # E.g. "UK0" -> "UK"
-                            for c in l["bus0"].split(" ")[0].split("_")
-                        ],
-                        axis="columns",
-                    )
-                )
-                bus1_countries = (
-                    n.df(spec["c"])
-                    .loc[vars.index]
-                    .apply(
-                        lambda l: [
-                            c.strip("0123456789")  # E.g. "UK0" -> "UK"
-                            for c in l["bus1"].split(" ")[0].split("_")
-                        ],
-                        axis="columns",
-                    )
-                )
-
-                # Note that some links lead to buses like "co2
-                # atmosphere"; not associated to any country. We count
-                # these as being in the region.
-                bus0_in_region = bus0_countries.apply(
-                    lambda cs: len(cs) == 0
-                    or len(set(cs).intersection(set(region))) > 0
-                )
-                bus1_in_region = bus1_countries.apply(
-                    lambda cs: len(cs) == 0
-                    or len(set(cs).intersection(set(region))) > 0
-                )
-                # Divide the coefficients by two if one side is in the
-                # region and the other side is outside the region
-                # (using XOR, ^).
-                coeffs.loc[bus0_in_region ^ bus1_in_region] /= 2
-
+            # TODO: Update to linopy
             # Append the coefficients and variables to the complete linear summand.
             expr = pd.concat([coeffs, vars], axis="columns")
             expr.columns = ["coeffs", "vars"]
@@ -192,6 +107,7 @@ def get_basis_values(n: pypsa.Network, basis: OrderedDict, use_opt=True) -> Orde
     If `use_opt` is set to True, it uses the optimal capacities *_nom_opt
     instead of *_nom capacities.
     """
+    #TODO: Does this need to be updated to linopy?
     basis_caps = BasisCapacities(basis=basis, init=n, use_opt=use_opt)
     return basis_caps.project_to_coordinates()
 
@@ -207,6 +123,7 @@ def get_basis_values_by_bus(
     the optimal capacities *_nom_opt instead of *_nom capacities.
 
     """
+    # TODO: Does this need to be updated to linopy?
     basis_caps = BasisCapacities(basis=basis, init=n, use_opt=use_opt)
     return basis_caps.project_to_coordinates_by_bus(labels)
 
@@ -279,6 +196,7 @@ class BasisCapacities:
 
     def __init__(self, basis: OrderedDict, init: pypsa.Network = None, use_opt=False):
         """Initialise from a basis and optionally a PyPSA network."""
+        # TODO: Update to linopy
         self._basis = basis
         self._caps = {}
         if init is not None:
@@ -304,36 +222,7 @@ class BasisCapacities:
                             n.df(spec["c"])["carrier"] == spec["carrier"]
                         ][v]
 
-                    # Deal with regions similarly as in the
-                    # basis_variables function.
-                    if "regions" in spec:
-                        region = spec["regions"]
-                        bus_columns = (
-                            ["bus0", "bus1"]
-                            if spec["c"] in ["Link", "Line"]
-                            else ["bus"]
-                        )
-
-                        # Extract a list of countries associated to each variable.
-                        cap_countries = (
-                            n.df(spec["c"])
-                            .loc[caps.index]
-                            .apply(
-                                lambda l: [
-                                    c.strip("0123456789")  # E.g. "UK0" -> "UK"
-                                    for bc in bus_columns
-                                    for c in l[bc].split(" ")[0].split("_")
-                                ],
-                                axis="columns",
-                            )
-                        )
-
-                        # Filter down to variables that are connected to the region.
-                        caps_in_region = cap_countries.apply(
-                            lambda cs: len(set(cs).intersection(set(region))) > 0
-                        )
-                        caps = caps.loc[caps_in_region]
-
+                    
                     # Extract the coefficients.
                     coeffs = pd.Series(1, index=caps.index, name="coeffs")
                     if "weight" in spec:
@@ -347,48 +236,6 @@ class BasisCapacities:
                     if "scale_by_years" in spec:
                         coeffs /= n.snapshot_weightings.objective.sum() / 8760
 
-                    if "regions" in spec and spec["c"] in ["Link", "Line"]:
-                        # Similarly to the basis_variables function,
-                        # we only count links and lines between the
-                        # focus region and the outside by half.
-                        bus0_countries = (
-                            n.df(spec["c"])
-                            .loc[caps.index]
-                            .apply(
-                                lambda l: [
-                                    c.strip("0123456789")  # E.g. "UK0" -> "UK"
-                                    for c in l["bus0"].split(" ")[0].split("_")
-                                ],
-                                axis="columns",
-                            )
-                        )
-                        bus1_countries = (
-                            n.df(spec["c"])
-                            .loc[caps.index]
-                            .apply(
-                                lambda l: [
-                                    c.strip("0123456789")  # E.g. "UK0" -> "UK"
-                                    for c in l["bus1"].split(" ")[0].split("_")
-                                ],
-                                axis="columns",
-                            )
-                        )
-
-                        # Note that some links lead to buses like "co2
-                        # atmosphere"; not associated to any country. We count
-                        # these as being in the region.
-                        bus0_in_region = bus0_countries.apply(
-                            lambda cs: len(cs) == 0
-                            or len(set(cs).intersection(set(region))) > 0
-                        )
-                        bus1_in_region = bus1_countries.apply(
-                            lambda cs: len(cs) == 0
-                            or len(set(cs).intersection(set(region))) > 0
-                        )
-                        # Divide the coefficients by two if one side is in the
-                        # region and the other side is outside the region
-                        # (using XOR, ^).
-                        coeffs.loc[bus0_in_region ^ bus1_in_region] /= 2
 
                     # Store everything in the capacity datastructure.
                     df = pd.concat([coeffs, caps], axis="columns")
@@ -585,6 +432,8 @@ def solve_network_in_direction(
         Constraint defining the near-optimal space.
 
     """
+    # TODO: Update this to linopy
+
     # Retrieve solver options from n.
     solving_options = n.config["solving"]["options"]
     solver_options = n.config["solving"]["solver"].copy()
@@ -593,12 +442,12 @@ def solve_network_in_direction(
     if tmpdir is not None:
         Path(tmpdir).mkdir(parents=True, exist_ok=True)
 
-    # TODO: make the prepare_network and extra_functionality work for
-    # pypsa-eur as well as pypsa-eur-sec.
+    # TODO: Make this work for PyPSA-LYB.
     n = prepare_network(n, solving_options, config=n.config)
 
     def extra_functionality(n, snapshots):
         """Enforce near-optimality and define a custom objective."""
+        # TODO: Update this to linopy.
         # Add constraint to make solution near-optimal.
         define_constraints(
             n, get_objective(n, n.snapshots), "<=", max_obj, "Near_optimal"
@@ -659,6 +508,7 @@ def solve_network_in_direction(
 # This function is adapted from pypsa.linopf
 def get_objective(n, sns):
     """Return the objective function as a linear expression."""
+    # TODO: Update this to linopy and PyPSA-LYB.
     if n._multi_invest:
         period_weighting = n.investment_period_weightings.objective[
             sns.unique("period")
@@ -694,6 +544,7 @@ def get_objective(n, sns):
 
         constant += cost @ n.df(c)[attr][ext_i]
 
+    # TODO: Update this to linopy.
     object_const = write_bound(n, constant, constant)
     total += linexpr((-1, object_const), as_pandas=False)[0]
 
@@ -706,6 +557,7 @@ def get_objective(n, sns):
         )
         if cost.empty:
             continue
+        # TODO: Update this to linopy.
         terms = linexpr((cost, get_var(n, c, attr).loc[sns, cost.columns])).sum().sum()
         total += terms
 
@@ -726,6 +578,7 @@ def get_objective(n, sns):
             )
             cost = active @ period_weighting * cost
 
+        # TODO: Update this to linopy.
         caps = get_var(n, c, attr).loc[ext_i]
         terms = linexpr((cost, caps)).sum()
         total += terms
@@ -801,6 +654,7 @@ def get_total_cost(n):
             )
             cost = active @ period_weighting * cost
 
+        # TODO: Update this to linopy.
         caps = get_var(n, c, attr).loc[ext_i]
         terms = linexpr((cost, caps)).sum()
         total += terms
@@ -930,256 +784,3 @@ def annual_variable_cost(
     # leap years.
     total /= n.snapshot_weightings.objective.sum() / 8760
     return total
-
-
-def ratio_share_national_imports(
-    n: pypsa.Network,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Computes the share of national production compared to imports and their ratio.
-
-    This function computes the ratio of national energy produced to
-    imported energy, as well as the share of national production. It
-    relies on the assumption that efficiency (conversion) losses do
-    not differ diametrally between the energy coming from local
-    production and the energy imported.
-
-    Parameters
-    ----------
-    n : pypsa.Network
-        The PyPSA network.
-
-    Returns
-    -------
-    pd.DataFrame
-        The ratio of national production to imports.
-    pd.DataFrame
-        The share of national production of energy available.
-    """
-    # Compute generation from renewable sources (excluding hydro and biomass).
-    var_renew_idx = n.generators.loc[
-        n.generators.carrier.isin(
-            [
-                "onwind",
-                "offwind-ac",
-                "offwind-dc",
-                "solar",
-                "ror",
-                "residential rural solar thermal",
-                "services rural solar thermal",
-                "residential urban decentral solar thermal",
-                "services urban decentral solar thermal",
-                "urban central solar thermal",
-                "solar rooftop",
-            ]
-        )
-    ].index
-    var_renew = (
-        (n.snapshot_weightings.generators @ n.generators_t.p.loc[:, var_renew_idx])
-        .groupby(n.generators.bus.map(n.buses.location).map(n.buses.country))
-        .sum()
-    )
-    # Compute generation from hydro reservoirs.
-    hydro_idx = n.storage_units.loc[n.storage_units.carrier == "hydro"].index
-    var_hydro = (
-        (n.snapshot_weightings.stores @ n.storage_units_t.p)
-        .loc[hydro_idx]
-        .groupby(n.storage_units.bus.map(n.buses.location).map(n.buses.country))
-        .sum()
-    )
-    # Compute generation from biomass. NB: Available biomass is the storage level in the first snapshot.
-    biomass_idx = n.stores.loc[
-        n.stores.carrier.isin(
-            [
-                "biogas",
-                "solid biomass",
-            ]
-        )
-    ].index
-    biomass_first_e = n.stores_t.e.loc[n.snapshots[0], biomass_idx]
-    biomass_last_e = n.stores_t.e.loc[n.snapshots[-1], biomass_idx]
-    biomass = (
-        -(biomass_last_e - biomass_first_e)
-        .groupby(n.stores.bus.map(n.buses.location).map(n.buses.country))
-        .sum()
-    )
-
-    # Compute nuclear generation.
-    nuclear_idx = n.links.loc[n.links.carrier == "nuclear"].index
-    nuclear = (
-        (
-            (
-                pd.DataFrame(
-                    np.outer(
-                        n.snapshot_weightings.generators.values,
-                        n.links.loc[nuclear_idx, "efficiency"].values,
-                    ),
-                    index=n.snapshots,
-                    columns=nuclear_idx,
-                )
-                * n.links_t.p0[nuclear_idx]
-            ).sum(axis="rows")
-        )
-        .groupby(n.links.bus1.map(n.buses.location).map(n.buses.country))
-        .sum()
-    )
-
-    # Ambient heat for heat pumps.
-    heat_pump_idx = n.links.filter(like="heat pump", axis="rows").index
-    from_ambient = n.links_t["efficiency"].loc[:, heat_pump_idx] - 1
-    ambient_heat_coeffs = from_ambient.mul(
-        n.snapshot_weightings.generators, axis="rows"
-    )
-    ambient_heat = (
-        (ambient_heat_coeffs * n.links_t.p0[heat_pump_idx])
-        .groupby(
-            n.links.bus1.map(n.buses.location).map(n.buses.country), axis="columns"
-        )
-        .sum()
-        .sum(axis="rows")
-    )
-
-    # National energy production
-    local_energy_prod = (
-        pd.concat(
-            [var_renew, var_hydro, biomass, nuclear, ambient_heat], axis="columns"
-        )
-        .fillna(0)
-        .sum(axis="columns")
-    )
-
-    # Imports
-    # Electricity imports
-    lines_in = {
-        c: n.lines.loc[
-            (n.lines.bus1.map(n.buses.country) == c)
-            & (n.lines.bus0.map(n.buses.country) != c)
-        ].index
-        for c in n.buses.country
-    }
-    lines_out = {
-        c: n.lines.loc[
-            (n.lines.bus0.map(n.buses.country) == c)
-            & (n.lines.bus1.map(n.buses.country) != c)
-        ].index
-        for c in n.buses.country
-    }
-    elec_imports = {
-        c: (n.snapshot_weightings.generators @ n.lines_t.p0)[lines_in[c]].sum()
-        if len(lines_in[c]) > 0
-        else 0
-        for c in local_energy_prod.index
-    }
-    elec_exports = {
-        c: -(n.snapshot_weightings.generators @ n.lines_t.p0)[lines_out[c]].sum()
-        if len(lines_out[c]) > 0
-        else 0
-        for c in local_energy_prod.index
-    }
-    elec_net_imports = {
-        c: elec_imports[c] + elec_exports[c] for c in local_energy_prod.index
-    }
-    elec_net_imports = pd.Series(elec_net_imports)
-
-    pipeline_carriers = [
-        "H2 pipeline",
-        "H2 pipeline retrofitted",
-        "gas pipeline",
-        "gas pipeline new",
-        "solid biomass transport",  # Not a pipeline but functionally equivalent
-        "DC",  # Ditto
-    ]
-    into_country = lambda c: (
-        (n.links.bus1.map(n.buses.location).map(n.buses.country) == c)
-        & (n.links.bus0.map(n.buses.location).map(n.buses.country) != c)
-    )
-    out_of_country = lambda c: (
-        (n.links.bus0.map(n.buses.location).map(n.buses.country) == c)
-        & (n.links.bus1.map(n.buses.location).map(n.buses.country) != c)
-    )
-    links_in = {
-        c: n.links.loc[
-            into_country(c) & (n.links.carrier.isin(pipeline_carriers))
-        ].index
-        for c in n.buses.country
-    }
-    links_out = {
-        c: n.links.loc[
-            out_of_country(c) & (n.links.carrier.isin(pipeline_carriers))
-        ].index
-        for c in n.buses.country
-    }
-
-    pipeline_imports = {
-        c: (n.snapshot_weightings.generators @ n.links_t.p0)[links_in[c]].sum()
-        if len(links_in[c]) > 0
-        else 0
-        for c in local_energy_prod.index
-    }
-    pipeline_exports = {
-        c: -(n.snapshot_weightings.generators @ n.links_t.p0)[links_out[c]].sum()
-        if len(links_out[c]) > 0
-        else 0
-        for c in local_energy_prod.index
-    }
-
-    pipeline_net_imports = {
-        c: pipeline_imports[c] + pipeline_exports[c] for c in local_energy_prod.index
-    }
-    pipeline_net_imports = pd.Series(pipeline_net_imports)
-
-    # Gas imports (LNG, pipeline, production)
-
-    gas_import = (
-        (
-            n.snapshot_weightings.generators
-            @ n.generators_t.p.loc[:, n.generators.carrier == "gas"]
-        )
-        .groupby(n.generators.bus.map(n.buses.location).map(n.buses.country))
-        .sum()
-    )
-    gas_import = gas_import.reindex(local_energy_prod.index).fillna(0)
-
-    # Total net imports
-    net_imports = elec_net_imports + pipeline_net_imports + gas_import
-
-    # Compute ratio of national production to imports. Note this could be infinity if no energy is imported.
-    ratio = (
-        local_energy_prod
-        - elec_net_imports.clip(upper=0)
-        - pipeline_net_imports.clip(upper=0)
-        - gas_import.clip(upper=0)
-    ) / (elec_net_imports.clip(0) + pipeline_net_imports.clip(0) + gas_import.clip(0))
-
-    # Compute share of national production of energy available. Note this can be larger than one for net exporters.
-    local_share = local_energy_prod / (local_energy_prod + net_imports)
-
-    return ratio, local_share
-
-
-# This function is taken from pypsa-eur-sec/scripts/helper.py:
-def override_component_attrs(directory):
-    """Tell PyPSA that links can have multiple outputs by
-    overriding the component_attrs. This can be done for
-    as many buses as you need with format busi for i = 2,3,4,5,....
-    See https://pypsa.org/doc/components.html#link-with-multiple-outputs-or-inputs
-
-    Parameters
-    ----------
-    directory : string
-        Folder where component attributes to override are stored
-        analogous to ``pypsa/component_attrs``, e.g. `links.csv`.
-
-    Returns
-    -------
-    Dictionary of overriden component attributes.
-    """
-
-    attrs = dict({k: v.copy() for k, v in component_attrs.items()})
-
-    for component, list_name in components.list_name.items():
-        fn = f"{directory}/{list_name}.csv"
-        if os.path.isfile(fn):
-            overrides = pd.read_csv(fn, index_col=0, na_values="n/a")
-            attrs[component] = overrides.combine_first(attrs[component])
-
-    return attrs
