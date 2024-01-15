@@ -40,15 +40,6 @@ if workflow.shadow_prefix:
 # any silly mistakes.
 validate_config(config)
 
-#TODO: Update this to PyPSA-LYB.
-# If specified in the config, override solving/tmpdir config with
-# $SCRATCH, if defined.
-if config["pypsa-eur"]["solving"].get("use-scratch", False) and "SCRATCH" in os.environ:
-    config["pypsa-eur"]["solving"]["tmpdir"] = os.environ["SCRATCH"]
-
-# Specify the maximum amount of time that jobs are allowed to run for.
-# This is used by the cluster profile to set the maximum walltime.
-MAX_RUNTIME = 5 * 24 * 60  # 5 days in minutes
 
 # Each snakemake run is defined by a named configuration file, which
 # is given as a command-line argument. This name is constant for the
@@ -76,34 +67,29 @@ print(
 #TODO: Update this to PyPSA-LYB.
 # Extract the custom pypsa-eur config section from the top-level
 # workflow config, and update the "run" section.
-custom_pypsa_eur_config = config["pypsa-eur"]
-custom_pypsa_eur_config["run"]["name"] = run_name
+custom_pypsa_lyb_config = config["pypsa-longyearbyen"]
+custom_pypsa_lyb_config["run"]["name"] = run_name
 # Same for pypsa-eur-sec config
 custom_pypsa_eur_sec_config = config.get("pypsa-eur-sec", {})
 custom_pypsa_eur_sec_config["run"] = run_name
-# Read the default pypsa-eur config, and update it using our custom config.
-with open(workflow.source_path("modules/pypsa-eur/config.default.yaml"), "r") as f:
-    pypsa_eur_config = yaml.safe_load(f)
-snakemake.utils.update_config(pypsa_eur_config, custom_pypsa_eur_config)
-# Additionally, add the pypsa-eur config to the pypsa-eur-sec config too
-pypsa_eur_sec_config["pypsa_eur_config"] = pypsa_eur_config
-# Override pypsa-eur-sec solving config with pypsa-eur solving config
-# TODO: This is a bit hacky, but it's the easiest way to satisfy pypsa-eur-sec
-pypsa_eur_config["solving"]["mem"] = pypsa_eur_sec_config["solving"]["mem"]
-pypsa_eur_sec_config["solving"] = pypsa_eur_config["solving"]
+# Read the default config, and update it using our custom config.
+with open(workflow.source_path("modules/pypsa-longyearbyen/config.yaml"), "r") as f:
+    pypsa_lyb_config = yaml.safe_load(f)
+snakemake.utils.update_config(pypsa_lyb_config, custom_pypsa_lyb_config)
+
 
 # TODO: Update this to PyPSA-LYB.
 # Set the number of threads to use for network optimisations.
 # Note: This may need to be changed if a different solver than Gurobi is used.
-grb_threads = config["pypsa-eur"]["solving"]["solver"]["threads"]
+grb_threads = config["pypsa-longyearbyen"]["solving"]["solver"]["threads"]
 parallel_threads = grb_threads * config["near_opt_approx"]["num_parallel_solvers"]
 
 # TODO: Update this to PyPSA-LYB.
 # Use the following to expand scenario configs
-spec = "{year}_{simpl}_{clusters}_{lv}_{sector_opts}_{planning_horizons}"
+spec = "{year}_{simpl}_{opts}_{planning_horizons}"
 
 
-# TODO: Can probably remove this?
+# TODO: Can we remove this?
 # Some results depend on collections on model scenarios. Since the
 # snakemake rule DAG is based on filenames, we need to encode these
 # entire collections of scenarios in filenames. However, since a list
@@ -122,28 +108,23 @@ if "scenario" in config:
     scenario_collections[near_opt_hash] = near_opt_scenarios
 
 
-# TODO: Update this to PyPSA-LYB.
-# Define the pypsa-eur-sec module.
-module pypsaeursec:
+# Define the pypsa-lyb module
+module pypsalyb:
     snakefile:
-        "modules/pypsa-eur-sec/Snakefile"
+        "modules/pypsa-longyearbyen/Snakefile"
     config:
-        pypsa_eur_sec_config
+        pypsa_lyb_config
     prefix:
-        "workflow/modules/pypsa-eur-sec"
+        "workflow/modules/pypsa-longyearbyen"
 
 
-use rule * from pypsaeursec as pypsaeursec_*
+use rule * from pypsalyb as pypsalyb_*
 
 # TODO: Update this to PyPSA-LYB.
 wildcard_constraints:
     # wildcards from pypsa-eur(-sec):
     simpl="[a-za-z0-9]*|all",
-    clusters="[0-9]+m?|all|[0-9]+-[0-9]+-[0-9]+",
-    ll=r"(v|c)([0-9\.]+|opt|all)|all",
-    lv=r"[a-z0-9\.]+",
     opts=r"[-+a-zA-Z0-9\.]*",
-    sector_opts=r"[-+a-zA-Z0-9\.\s]*",
     planning_horizons="[0-9]{4}|",
     # The {name} wildcard is used as an option prefix giving a
     # descriptive name. As a wildcard, it must end with an underscore
@@ -173,20 +154,12 @@ localrules:
     calc_obj_bound,
 
 # TODO: Update this to PyPSA-LYB.
-localrules:
-    pypsaeursec_all,
-    pypsaeursec_solve_all_networks,
-    pypsaeursec_prepare_sector_networks,
-    pypsaeursec_retrieve_sector_databundle,
-    pypsaeursec_retrieve_gas_infrastructure_data,
-    pypsaeursec_plot_network,
-    pypsaeursec_copy_config,
-    pypsaeursec_make_summary,
-    pypsaeursec_plot_summary,
+# localrules:
+#     pypsalyb_all,
+#     pypsalyb_solve_all_networks,
 
 
-# Note: the "scenario" section of the config is a little outdated but
-# can still be used to compute "plain" near-optimal spaces.
+
 if "scenario" in config:
     rule build_all_networks:
         input:
@@ -216,134 +189,11 @@ if "scenario" in config:
             ),
 
 
-# TODO: Consider updating this for PyPSA-LYB.
-def optimisation_memory(wildcards):
-    """Estimate the memory requirement for solving a model with the given wildcards.
-
-    This function assumes that the model is solved using Gurobi. The
-    formula results from the a simple regression on memory consumption
-    of models with a variety of different resolutions. The modelling
-    horizon is assumed to be one year.
-
-    We only consider model spatial and temporal resolution as relevant
-    factors for this computation.
-
-    The formula obtained by regression is the following:
-        -1035.4 - 4.59 g + 40.86 c + 92.34 (g+c) / h + 5564.72 / h
-    where g = simpl, c = clusters and h is the time resolution in
-    hours. We add 5% to this formula.
-
-    The code in inspired by the comparable functionality in pypsa-eur.
-    """
-    # Parse the network specs
-    s = parse_net_spec(wildcards.spec)
-
-    # Compute a multiplicative factor based on time resolution.
-    h = 1
-    opts = s["opts"] if "opts" in s else s["sector_opts"]
-
-    # First try to get time resolution from "xH" opt
-    for o in opts.split("-"):
-        m = re.match(r"^(\d+)h$", o, re.IGNORECASE)
-        if m is not None:
-            h = int(m.group(1))
-            break
-
-    # In case there's a time segmentation opt, it takes precedence
-    for o in opts.split("-"):
-        # Time series segmentation
-        m = re.match(r"^(\d+)seg$", o, re.IGNORECASE)
-        if m is not None:
-            h = 8760 / int(m.group(1))
-            break
-
-    # Divide the time resolution factor by the number of years the model runs over.
-    year = s["year"] if s["year"] else wildcards.year
-    num_years = len(parse_year_wildcard(year))
-    h = h / num_years
-
-    # Find the memory consumption based the spatial resolution (with
-    # hourly time resolution). This depends on both the 'simpl' and
-    # 'cluster' wildcards.
-    if s["clusters"].endswith("m"):
-        clusters = int(s["clusters"][:-1])
-        simpl = int(s["simpl"])
-    elif "-" in s["clusters"]:
-        clusters = sum(map(int, s["clusters"].split("-")))
-        simpl = clusters
-    else:
-        clusters = int(s["clusters"])
-        simpl = clusters
-
-    # This regression doesn't work well for low time resolutions,
-    # so lower bound h in the following calculation.
-    h = min(h, 12)
-
-    mem = -1000 - 5 * simpl + 41 * clusters + 92 * (simpl + clusters) / h + 5600 / h
-
-    # This is crude estimation for pypsa-eur-sec memory
-    # consumption: 7 times as much as pypsa-eur. In reality,
-    # sector options play a role here.
-    return 7 * mem
-
-
-# When the cluster isn't busy, runtime isn't very important and we can just make
-# very generous estimates. Should be at least about a factor of 2-3.
-OPT_TIME_SLACK = 3
-
-# TODO: Consider updating this for PyPSA-LYB.
-def opt_time_exp(wildcards):
-    """Returns the expected runtime of a network optimisation in minutes."""
-    # Parse the network specs
-    s = parse_net_spec(wildcards.spec)
-
-    if s["clusters"].endswith("m"):
-        clusters = int(s["clusters"][:-1])
-    elif "-" in s["clusters"]:
-        clusters = sum(map(int, s["clusters"].split("-")))
-    else:
-        clusters = int(s["clusters"])
-
-    # Compute a multiplicative factor based on time resolution.
-    h = 1
-    opts = s["opts"] if "opts" in s else s["sector_opts"]
-
-    # First try to get time resolution from "xH" opt
-    for o in opts.split("-"):
-        m = re.match(r"^(\d+)h$", o, re.IGNORECASE)
-        if m is not None:
-            h = int(m.group(1))
-            break
-
-    # In case there's a time segmentation opt, it takes precedence
-    for o in opts.split("-"):
-        # Time series segmentation
-        m = re.match(r"^(\d+)seg$", o, re.IGNORECASE)
-        if m is not None:
-            h = 8760 / int(m.group(1))
-            break
-
-    # Some data points for estimation:
-    # - (3H, 35 nodes): 8136s average per optimisation
-    #   ~ 270s / node
-    # - (3H, 55 nodes): 14875s average per optimisation
-    #   ~ 232s / node
-
-    # Based on two data-points (average runtimes for 35 and 55
-    # node resolutions), we use a simple quadratic regression
-    # based on the number of nodes to estimate runtime. The
-    # following is in seconds:
-    quad_estimate = 500 * clusters + 5.7 * clusters * clusters
-    # Divide by time resolution and convert to minutes
-    return OPT_TIME_SLACK * quad_estimate / (60 * h)
-
 
 # TODO: Update this to PyPSA-LYB.
 rule compute_optimum:
     input:
         network=os.path.join(networks_dir, "{spec}.nc"),
-    params:
-        overrides=override_dir,
     output:
         # Example: "optimum/1980-2020_181_90m_lcopt_Co2L-3H.nc"
         #                   <------------spec------------->
@@ -357,10 +207,8 @@ rule compute_optimum:
     conda:
         "envs/maa.fixed.yaml"
     resources:
-        mem_mb=lambda wildcards, attempt: attempt * optimisation_memory(wildcards),
-        runtime=lambda wildcards, attempt: min(
-            MAX_RUNTIME, attempt * 4 * opt_time_exp(wildcards)
-        ),
+        mem_mb=10000,
+        runtime=100,
     retries: 3
     threads: grb_threads
     shadow:
@@ -379,7 +227,6 @@ def calc_obj_bound_input(w):
         for scenario in scenarios
     ]
 
-# TODO: Update this to PyPSA-LYB.
 # Local rule:
 rule calc_obj_bound:
     input:
@@ -400,7 +247,7 @@ rule calc_obj_bound:
 def near_opt_memory(wildcards):
     return config["near_opt_approx"].get(
         "num_parallel_solvers", 1
-    ) * optimisation_memory(wildcards)
+    ) * 10000
 
 
 def mga_runtime(wildcards):
@@ -409,19 +256,17 @@ def mga_runtime(wildcards):
     num_opts = 2 * len(config["projection"])
     # Give a generous amount of slack in case of single optimisations
     # that take a long time.
-    return 4 * math.ceil(num_opts / num_parallel) * opt_time_exp(wildcards)
+    return 4 * math.ceil(num_opts / num_parallel) * 100
 
-# TODO: Update this to PyPSA-LYB.
+#TODO: Update to PyPSA_LYB
 rule mga:
     input:
         network=os.path.join(networks_dir, "{name}{spec}.nc"),
         optimum=os.path.join(results_dir, "optimum/{name}{spec}.csv"),
         obj_bound=os.path.join(results_dir, "obj_bound/e{eps}_{scenarios_hash}"),
-    params:
-        overrides=override_dir,
     output:
-        # Example: "mga/1980-2020_181_90m_lcopt_Co2L-3H_e0.2uni1980-2020.csv"
-        #               <-year--> <------spec--------->  <-----eps----->
+        # Example: "mga/1980-2020_Co2L-3H_e0.2uni1980-2020.csv"
+        #               <-year-> <-spec--><--------eps------->
         mga_space=os.path.join(
             results_dir, "mga/{name}{spec}_e{eps}_{scenarios_hash}.csv"
         ),
@@ -433,9 +278,9 @@ rule mga:
     conda:
         "envs/maa.fixed.yaml"
     resources:
-        mem_mb=near_opt_memory,  # TODO: this isn't accurate when number of parallel processes is greater than mga optimisations.
-        runtime=lambda wildcards, attempt: min(
-            MAX_RUNTIME, attempt * mga_runtime(wildcards)
+        mem_mb=near_opt_memory, 
+        runtime=lambda wildcards: min(
+            MAX_RUNTIME, mga_runtime(wildcards)
         ),
         disk_mb=2 * len(config["projection"]) * 2000,
     retries: 3
@@ -464,7 +309,6 @@ rule compute_near_opt:
         ),
         obj_bound=os.path.join(results_dir, "obj_bound/e{eps}_{scenarios_hash}"),
     params:
-        overrides=override_dir,
         iterations=os.path.join(
             debug_dir,
             "near_opt/{name}{spec}_e{eps}_{scenarios_hash}",
@@ -474,8 +318,8 @@ rule compute_near_opt:
             "near_opt/{name}{spec}_e{eps}_{scenarios_hash}",
         ),
     output:
-        # Example: "near_opt/1980-2020_181_90m_lcopt_Co2L-3H_e0.2uni1980-2020.csv"
-        #                    <-year--> <------spec--------->  <-----eps----->
+        # Example: "near_opt/1980-2020_Co2L-3H_e0.2uni1980-2020.csv"
+        #                    <-year--> <-spec-><-------eps----->
         near_opt=os.path.join(
             results_dir, "near_opt/{name}{spec}_e{eps}_{scenarios_hash}.csv"
         ),
@@ -492,8 +336,8 @@ rule compute_near_opt:
     resources:
         mem_mb=near_opt_memory,
         disk_mb=config["near_opt_approx"]["iterations"] * 2000,
-        runtime=lambda wildcards, attempt: min(
-            MAX_RUNTIME, attempt * near_opt_runtime(wildcards)
+        runtime=lambda wildcards: min(
+            MAX_RUNTIME, near_opt_runtime(wildcards)
         ),
     retries: 3
     threads: parallel_threads

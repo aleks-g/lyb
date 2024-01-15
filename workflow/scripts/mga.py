@@ -21,13 +21,12 @@ from multiprocessing import Pool, get_context
 from pathlib import Path
 
 import numpy as np
-from _helpers import configure_logging
 from utilities import (
     get_basis_values,
     override_component_attrs,
     solve_network_in_direction,
 )
-from workflow_utilities import parse_net_spec
+from workflow_utilities import parse_net_spec, configure_logging
 
 # Ignore futurewarnings raised by pandas from inside pypsa, at least
 # until the warning is fixed. This needs to be done _before_ pypsa and
@@ -148,6 +147,7 @@ def mga_worker(
 
     # Solve the network.
     t = time.time()
+    # TODO: Update to linopy.
     status, termination_condition = solve_network_in_direction(
         m, direction, basis, obj_bound
     )
@@ -172,6 +172,7 @@ def mga_worker(
     # return nothing. Unsuccessful solves can happen sporadically due
     # to, for example, numerical issues.
     if status == "ok":
+        # TODO: Update to linopy
         return get_basis_values(m, basis)
     else:
         # If the status is not "ok" (in which case it's "warning"),
@@ -184,6 +185,7 @@ def mga_worker(
                 f"{worker_name}: Suboptimal solution for {description};"
                 " still using results."
             )
+            # TODO: Update to linopy
             return get_basis_values(m, basis)
         else:
             print(f"{worker_name}: Optimisation unsuccessful: ignoring results.")
@@ -199,12 +201,11 @@ if __name__ == "__main__":
     pypsa_logger.setLevel(logging.WARNING)
 
     # Load the network and solving options.
-    overrides = override_component_attrs(snakemake.params.overrides)
-    n = pypsa.Network(snakemake.input.network, override_component_attrs=overrides)
+    n = pypsa.Network(snakemake.input.network)
 
     # Attach solving configuration to the network.
-    # TODO: what if we run this with pypsa-eur, not pypsa-eur-sec?
-    n.config = snakemake.config["pypsa-eur-sec"]
+    n.config = snakemake.config["pypsa-longyearbyen"]
+    # TODO: Update to PyPSA-LYB.
     n.opts = parse_net_spec(snakemake.wildcards.spec)["sector_opts"].split("-")
 
     # Load other inputs (the optimal point, the near-optimality

@@ -10,6 +10,7 @@ scenario:
   simpl:
   planning_horizons:
   opts:
+  year:
 
 # The following config section relates to how the near-optimal
 # feasible space is approximated.
@@ -94,3 +95,5 @@ logging:
 #   system:
 #   snapshots:
 #   solving:
+#     tmpdir: "./tmp"
+
