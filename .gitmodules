@@ -8,3 +8,6 @@
 [submodule "pypsa-eur-sec"]
 	path = workflow/modules/pypsa-eur-sec
 	url = git@github.com:koen-vg/pypsa-eur-sec.git
+[submodule "workflow/modules/pypsa-longyearbyen"]
+	path = workflow/modules/pypsa-longyearbyen
+	url = https://gitlab.com/koenvg/pypsa-longyearbyen.git

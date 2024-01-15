@@ -1,21 +1,14 @@
 <!--
-SPDX-FileCopyrightText: 2023 Koen van Greevenbroek & Aleksander Grochowicz
+SPDX-FileCopyrightText: 2024 Koen van Greevenbroek & Aleksander Grochowicz
 
 SPDX-License-Identifier: CC-BY-4.0
 -->
 
+
+Under construction.
+
+
 # Introduction
-
-This repository contains the code for reproducing the results presented in [_Enabling agency: trade-offs between regional and integrated energy systems design flexibility_](https://arxiv.org/abs/2312.11264) (under review). In the paper, we develop a novel decomposition of the near-optimal space of energy system optimisation models into regional components. This allows us to study trade-offs in investment and design flexibility between different regions in Europe.
-
-The present codebase is an evolution of the code presented [here](https://github.com/aleks-g/intersecting-near-opt-spaces/) (and part of [this paper](https://doi.org/10.1016/j.eneco.2022.106496)), with the main changes being:
-- The use of the sector-coupled model pypsa-eur-sec instead of pypsa-eur;
-- Enabling the intersection of near-optimal spaces coming not only from different weather years but also other scenarios with different technology costs are land-use restrictions;
-- The introduction of country clustering (i.e. merging two or more countries into a single model node) in order to save on spatial resolution;
-- A clustering scheme where specified numbers of nodes are allocated to a chosen focus region, the group of countries bordering the focus region and all other countries;
-- The implementation of a net self-sufficiency constraint for the sector coupled model;
-- A script for generating many model solutions located on the boundary of an intersection of near-optimal spaces in order to investigate details of many examples of robust solutions. 
-
 
 # Installation and usage
 
@@ -81,26 +74,4 @@ A configuration file needs to have a name (corresponding to the file name of the
 - a "pypsa-eur-sec" section which updates changes in the defaul pypsa-eur-sec config (including choices about the gas network and which conventional generators to carry over from PyPSA-Eur).
 - a "scenario" or "intersection_scenarios" section specifying the behaviour of `*_all_*` rules.
 - a "robust_networks" sections specifying the options to sample robust networks (in full resolution) on the boundary of the intersection.
-
-
-# Data
-
-We are using data from the same sources that PyPSA-Eur and PyPSA-Eur-Sec do, however with some slight variations.
-
-## Cost data
-
-We use cost data as in PyPSA-Eur from the [technology data](https://github.com/PyPSA/technology-data) repository.
-
-## Weather and renewable resource data
-
-We use reanalysis data from ERA5 for the time period between 1980 and 2020, which covers the studied region in an hourly resolution. This is processed by atlite to generate capacity factor time series for solar PV, on- and offshore wind.
-Although the ERA5 data may be retrieved through the Copernicus API using Atlite (using the `build_cutouts` config option), this takes a long time.
-Therefore we have also make the cutouts available at [DOI: 10.11582/2022.00034](https://www.doi.org/10.11582/2022.00034).
-These cutouts must be downloaded manually.
-
-
-## Load data
-
-We use an artificial electricity demand dataset through an regression on ENTSO-E load data and temperature influence on it (per country) following PyPSA-Eur.
-
 
