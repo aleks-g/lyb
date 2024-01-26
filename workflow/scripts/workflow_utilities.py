@@ -50,44 +50,6 @@ def validate_config(config):
         pass
 
 
-def translate_projection_regions(
-    proj_config: dict, regions_config: dict, all_countries: list[str]
-) -> dict:
-    """Translate named regions into explicit lists of countries.
-
-    For each `regions: "foo"` option in a projection specification in
-    `proj_config`, replace the string "foo" with the contents of
-    `regions_config["foo"]`. Replace "not-foo" with a list of all
-    countries excluding those in `regions_config["foo"]`. This allows
-    regions and their complements to be specified cleanly without
-    repetition for each dimension.
-
-    """
-    new_proj_config = copy.deepcopy(proj_config)
-    for spec in new_proj_config.values():
-        for comp in spec:
-            if "regions" in comp:
-                if isinstance(comp["regions"], str):
-                    # We have something to replace! Is it a named
-                    # region or its complement?
-                    if comp["regions"].startswith("not-"):
-                        region_name = comp["regions"][4:]
-                        complement = True
-                    else:
-                        region_name = comp["regions"]
-                        complement = False
-                    if region_name not in regions_config:
-                        raise ValueError(
-                            f"Used region name {region_name} in projection config without"
-                            " defining it in the `projection_regions` section of the config!"
-                        )
-                    countries = regions_config[region_name]
-                    if complement:
-                        countries = list(set(all_countries).difference(set(countries)))
-                    comp["regions"] = countries
-    return new_proj_config
-
-
 def build_intersection_scenarios(scenarios_config: dict) -> list[str]:
     scenarios: list[str] = []
     common_wildcards: dict = scenarios_config["common"]
@@ -154,12 +116,12 @@ def hash_config(configuration: dict):
     ]:
         if i in config_to_be_hashed["near_opt_approx"]:
             del config_to_be_hashed["near_opt_approx"][i]
-    if "solving" in config_to_be_hashed["pypsa-eur"]:
-        del config_to_be_hashed["pypsa-eur"]["solving"]
+    if "solving" in config_to_be_hashed["pypsa-longyearbyen"]:
+        del config_to_be_hashed["pypsa-longyearbyen"]["solving"]
     if "scenario" in config_to_be_hashed:
         del config_to_be_hashed["scenario"]
-    if "robust_networks" in config_to_be_hashed:
-        del config_to_be_hashed["robust_networks"]
+    if "sample" in config_to_be_hashed:
+        del config_to_be_hashed["sample"]
     return hashlib.md5(
         str(json.dumps(config_to_be_hashed, sort_keys=True)).encode()
     ).hexdigest()[:8]
@@ -171,10 +133,7 @@ def parse_net_spec(spec: str) -> dict:
     rs = {
         "year": r"([0-9]+)(-[0-9]+)?(\+([0-9]+)(-[0-9]+)?)*",
         "simpl": r"[a-zA-Z0-9]*|all",
-        "clusters": r"[0-9]+m?|all|[0-9]+-[0-9]+-[0-9]+",
-        "ll": r"(v|c)([0-9\.]+|opt|all)|all",
-        "lv": r"[a-z0-9\.]+",
-        "sector_opts": r"[-+a-zA-Z0-9\.]*",
+        "opts": r"[-+a-zA-Z0-9\.]*",
         "planning_horizon": r"[0-9]{4}|",
         "eps": r"[0-9\.]+(uni([0-9]+)(-[0-9]+)?(\+([0-9]+)(-[0-9]+)?)*)?",
     }
@@ -182,12 +141,12 @@ def parse_net_spec(spec: str) -> dict:
     # r"[0-9\.]+(uni)?" becomes r"(?P<eps>[0-9\.]+(uni)?)".
     G = {n: f"(?P<{n}>{r})" for n, r in rs.items()}
     # Build the complete regex out of the individual groups
-    full_regex_pypsa_eur_sec = (
+    full_regex_pypsa_lyb = (
         f"({G['year']}_)?"
         f"{G['simpl']}_{G['clusters']}_{G['lv']}_{G['sector_opts']}_{G['planning_horizon']}"
         f"(_e{G['eps']})?"
     )
-    m = re.search(full_regex_pypsa_eur_sec, spec)
+    m = re.search(full_regex_pypsa_lyb, spec)
     if m is not None:
         return m.groupdict()
 
@@ -245,21 +204,26 @@ def configure_logging(snakemake, skip_handlers=False):
     # First, set up the logging module.
     import logging
 
-    kwargs = snakemake.config.get('logging', dict())
+    kwargs = snakemake.config.get("logging", dict())
     kwargs.setdefault("level", "INFO")
 
     if skip_handlers is False:
-        fallback_path = Path(__file__).parent.joinpath('..', 'logs', f"{snakemake.rule}.log")
-        logfile = snakemake.log.get('python', snakemake.log[0] if snakemake.log
-                                    else fallback_path)
+        fallback_path = Path(__file__).parent.joinpath(
+            "..", "logs", f"{snakemake.rule}.log"
+        )
+        logfile = snakemake.log.get(
+            "python", snakemake.log[0] if snakemake.log else fallback_path
+        )
         kwargs.update(
-            {'handlers': [
-                # Prefer the 'python' log, otherwise take the first log for each
-                # Snakemake rule
-                logging.FileHandler(logfile),
-                logging.StreamHandler()
+            {
+                "handlers": [
+                    # Prefer the 'python' log, otherwise take the first log for each
+                    # Snakemake rule
+                    logging.FileHandler(logfile),
+                    logging.StreamHandler(),
                 ]
-            })
+            }
+        )
     logging.basicConfig(**kwargs)
 
     # Also configure exceptions to be logged.
@@ -269,6 +233,8 @@ def configure_logging(snakemake, skip_handlers=False):
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
 
-        logging.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+        logging.error(
+            "Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback)
+        )
 
     sys.excepthook = handle_exception

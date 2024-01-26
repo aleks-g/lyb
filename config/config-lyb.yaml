@@ -8,7 +8,7 @@ name: "lyb"
 scenario:
   eps:
   simpl:
-  planning_horizons:
+  planning_horizon:
   opts:
   year:
 
@@ -103,5 +103,6 @@ pypsa-longyearbyen:
   solving:
     tmpdir: "./tmp"
     threads: 2
+    options:
 
 

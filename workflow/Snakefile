@@ -83,7 +83,7 @@ parallel_threads = grb_threads * config["near_opt_approx"]["num_parallel_solvers
 
 # TODO: Update this to PyPSA-LYB.
 # Use the following to expand scenario configs
-spec = "{year}_{simpl}_{opts}_{planning_horizons}"
+spec = "{year}_{simpl}_{opts}_{planning_horizon}"
 
 
 # TODO: Can we remove this?
