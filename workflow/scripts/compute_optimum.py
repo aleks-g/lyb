@@ -10,9 +10,7 @@ import warnings
 from pathlib import Path
 
 from _helpers import configure_logging
-from pypsa.linopf import ilopf, network_lopf
-from solve_network import extra_functionality, prepare_network
-from utilities import get_basis_values, override_component_attrs
+from utilities import get_basis_values
 from workflow_utilities import parse_net_spec
 
 # Ignore futurewarnings raised by pandas from inside pypsa, at least
@@ -28,54 +26,36 @@ if __name__ == "__main__":
     configure_logging(snakemake)
 
     # Load the network and solving options.
-    # TODO: Update to linopy.
-    overrides = override_component_attrs(snakemake.params.overrides)
-    n = pypsa.Network(snakemake.input.network, override_component_attrs=overrides)
-    solving_options = snakemake.config["pypsa-eur"]["solving"]["options"]
-    solver_options = snakemake.config["pypsa-eur"]["solving"]["solver"].copy()
+    n = pypsa.Network(snakemake.input.network)
+    solving_options = snakemake.config["pypsa-longyearbyen"]["solving"]["options"]
+    solver_options = snakemake.config["pypsa-longyearbyen"]["solving"]["solver"].copy()
     solver_name = solver_options.pop("name")
-    tmpdir = snakemake.config["pypsa-eur"]["solving"].get("tmpdir", None)
+    tmpdir = snakemake.config["pypsa-longyearbyen"]["solving"].get("tmpdir", None)
     if tmpdir is not None:
         Path(tmpdir).mkdir(parents=True, exist_ok=True)
 
     # Add to network for extra_functionality.
-    n.config = snakemake.config["pypsa-eur-sec"]
-    n.opts = parse_net_spec(snakemake.wildcards.spec)["sector_opts"].split("-")
-
-    # TODO: make the following few lines work for pypsa-eur and not just pypsa-eur-sec
-    n = prepare_network(n, solving_options, config=snakemake.config["pypsa-eur-sec"])
+    n.config = snakemake.config["pypsa-longyearbyen"]
+    n.opts = parse_net_spec(snakemake.wildcards.spec)["opts"].split("-")
 
     # Solve the network for the cost optimum and then get its
     # coordinates in the basis.
     logging.info("Compute initial, optimal solution.")
     t = time.time()
-    # TODO: Update to linopy.
-    if solving_options.get("skip_iterations", False):
-        status, _ = network_lopf(
-            n,
-            solver_name=solver_name,
-            solver_options=solver_options,
-            solver_dir=tmpdir,
-            extra_functionality=extra_functionality,
-            keep_shadowprices=solving_options.get("keep_shadowprices", True),
-        )
-    else:
-        ilopf(
-            n,
-            solver_name=solver_name,
-            solver_options=solver_options,
-            solver_dir=tmpdir,
-            track_iterations=solving_options.get("track_iterations", False),
-            min_iterations=solving_options.get("min_iterations", 1),
-            max_iterations=solving_options.get("max_iterations", 6),
-            extra_functionality=extra_functionality,
-            keep_shadowprices=solving_options.get("keep_shadowprices", True),
-        )
-        # `ilopf` doesn't give us any optimisation status or
-        # termination condition, and simply crashes if any
-        # optimisation fails.
-        status = "ok"
+    # Do not need to have iterations, as there is no transmission.
+    status, condition = n.optimize(
+        n,
+        solver_name=solver_name,
+        solver_options=solver_options,
+        assign_all_duals=True,
+        solver_dir=tmpdir,
+    )
     logging.info(f"Optimisation took {time.time() - t:.2f} seconds.")
+    if "infeasible" in condition:
+        labels = n.model.compute_infeasibilities()
+        logging.info(f"Labels:\n{labels}")
+        n.model.print_infeasibilities()
+        raise RuntimeError("Solving status 'infeasible'")
 
     # Check if the optimisation succeeded; if not we don't output
     # anything in order to make snakemake fail. Not checking for this

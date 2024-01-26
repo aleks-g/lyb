@@ -20,17 +20,11 @@ from pypsa.components import component_attrs, components
 from pypsa.descriptors import get_active_assets, get_extendable_i
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense
 from pypsa.descriptors import nominal_attrs
-from pypsa.linopf import ilopf, network_lopf
 from pypsa.linopt import (
-    define_constraints,
-    get_var,
-    linexpr,
     write_bound,
     write_objective,
 )
-
-from solve_network import extra_functionality as sec_extra_functionality
-from solve_network import prepare_network
+import linopy
 
 marginal_attr = {"Generator": "p", "Link": "p", "Store": "p", "StorageUnit": "p"}
 
@@ -53,11 +47,9 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
     for key, dim in basis.items():
         summands = []
         for spec in dim:
-            # TODO: Updated to linopy.
             # First, get the respecified variables for _all_
             # components of the given type, for example p_nom for
             # _all_ generators.
-            #vars = get_var(n, spec["c"], spec["v"])
             vars = n.model[f"{spec["c"]}-{spec["v"]}"]
 
             # Now, we filter down to a desired subset of variables,
@@ -70,7 +62,6 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
                     .index
                 ]
 
-            #TODO: Update to linopy?
             # Extract coefficients.
             coeffs = pd.Series(1, index=vars.index)
             if "weight" in spec:
@@ -93,7 +84,6 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
                 # time-frame of the network. Disregard leap years.
                 coeffs /= n.snapshot_weightings.objective.sum() / 8760
 
-            # TODO: Update to linopy?
             # Append the coefficients and variables to the complete linear summand.
             expr = pd.concat([coeffs, vars], axis="columns")
             expr.columns = ["coeffs", "vars"]
@@ -108,7 +98,6 @@ def get_basis_values(n: pypsa.Network, basis: OrderedDict, use_opt=True) -> Orde
     If `use_opt` is set to True, it uses the optimal capacities *_nom_opt
     instead of *_nom capacities.
     """
-    #TODO: Does this need to be updated to linopy?
     basis_caps = BasisCapacities(basis=basis, init=n, use_opt=use_opt)
     return basis_caps.project_to_coordinates()
 
@@ -124,7 +113,6 @@ def get_basis_values_by_bus(
     the optimal capacities *_nom_opt instead of *_nom capacities.
 
     """
-    # TODO: Does this need to be updated to linopy?
     basis_caps = BasisCapacities(basis=basis, init=n, use_opt=use_opt)
     return basis_caps.project_to_coordinates_by_bus(labels)
 
@@ -197,7 +185,6 @@ class BasisCapacities:
 
     def __init__(self, basis: OrderedDict, init: pypsa.Network = None, use_opt=False):
         """Initialise from a basis and optionally a PyPSA network."""
-        # TODO: Update to linopy?
         self._basis = basis
         self._caps = {}
         if init is not None:
@@ -433,7 +420,6 @@ def solve_network_in_direction(
         Constraint defining the near-optimal space.
 
     """
-    # TODO: Update this to linopy
 
     # Retrieve solver options from n.
     solving_options = n.config["solving"]["options"]
@@ -443,88 +429,50 @@ def solve_network_in_direction(
     if tmpdir is not None:
         Path(tmpdir).mkdir(parents=True, exist_ok=True)
 
-    # TODO: Make this work for PyPSA-LYB.
-    n = prepare_network(n, solving_options, config=n.config)
-
     def extra_functionality(n, snapshots):
         """Enforce near-optimality and define a custom objective."""
-        # TODO: Update this to linopy.
         # Add constraint to make solution near-optimal.
-        define_constraints(
-            n, get_objective(n, n.snapshots), "<=", max_obj, "Near_optimal"
-        )
+        n.model.add_constraints(
+            get_objective(n, n.snapshots), "<=", max_obj, "Near_optimal"
+            )
 
         # Now, modify the objection function to point in the given
         # direction.
         basis_variables = get_basis_variables(n, basis)
-        # TODO: Update this to linopy.
         obj = pd.concat(
             [
-                linexpr((c * b.coeffs, b.vars))
+                linopy.LinearExpression.from_tuples((c * b.coeffs, b.vars))
                 for (c, b) in zip(direction, basis_variables.values())
             ]
         )
-        # TODO: Update this to linopy.
         write_objective(n, obj)
 
-        # TODO: Can be removed?
-        # Set a constant objective, which is useless in this case but expected by `ilopf`.
-        n.objective_constant = 0
+        # # TODO: Can be removed?
+        # # Set a constant objective, which is useless in this case but expected by `ilopf`.
+        # n.objective_constant = 0
 
-        # Run the additional extra functionality from the
-        # sector-coupled model.
-        sec_extra_functionality(n, n.snapshots)
-
-    # TODO: Update this to linopy.
-    # Solve the network.
-    if solving_options.get("skip_iterations", False):
-        status, termination_condition = network_lopf(
-            n,
-            solver_name=solver_name,
-            solver_options=solver_options,
-            skip_objective=True,
-            solver_dir=tmpdir,
-            extra_functionality=extra_functionality,
-            keep_references=True,
-        )
-    else:
-        ilopf(
-            n,
-            solver_name=solver_name,
-            solver_options=solver_options,
-            skip_objective=True,
-            solver_dir=tmpdir,
-            extra_functionality=extra_functionality,
-            track_iterations=solving_options.get("track_iterations", False),
-            min_iterations=solving_options.get("min_iterations", 1),
-            max_iterations=solving_options.get("max_iterations", 6),
-        )
-        # `ilopf` doesn't give us any optimisation status or
-        # termination condition, and simply crashes if any
-        # optimisation fails.
-        status, termination_condition = "ok", "optimal"
+    # No need to iteratively solve.
+    status, condition = n.optimize(
+        n,
+        solver_name=solver_name,
+        solver_options=solver_options,
+        extra_functionality=extra_functionality,
+        solver_dir=tmpdir,
+        #skip_objective=True,
+        assign_all_duals=True,
+    )
 
     # Return the status and termination condition of the network
     # solve, allowing the caller to deal with suboptimal and failed
     # solves.
-    return status, termination_condition
+    return status, condition
 
 
-# This function is adapted from pypsa.linopf
+# This function is adapted from pypsa.linopf and updated to linopy.
 def get_objective(n, sns):
     """Return the objective function as a linear expression."""
-    # TODO: Update this to linopy and PyPSA-LYB.
-    if n._multi_invest:
-        period_weighting = n.investment_period_weightings.objective[
-            sns.unique("period")
-        ]
-
-    if n._multi_invest:
-        weighting = n.snapshot_weightings.objective.mul(period_weighting, level=0).loc[
-            sns
-        ]
-    else:
-        weighting = n.snapshot_weightings.objective.loc[sns]
+       
+    weighting = n.snapshot_weightings.objective.loc[sns]
 
     total = ""
 
@@ -537,21 +485,11 @@ def get_objective(n, sns):
         if cost.empty:
             continue
 
-        if n._multi_invest:
-            active = pd.concat(
-                {
-                    period: get_active_assets(n, c, period)[ext_i]
-                    for period in sns.unique("period")
-                },
-                axis=1,
-            )
-            cost = active @ period_weighting * cost
-
         constant += cost @ n.df(c)[attr][ext_i]
 
-    # TODO: Update this to linopy.
     object_const = write_bound(n, constant, constant)
-    total += linexpr((-1, object_const), as_pandas=False)[0]
+    #total += linexpr((-1, object_const), as_pandas=False)[0]
+    total += linopy.LinearExpression.from_tuples((-1, object_const))[0]
 
     # marginal cost
     for c, attr in marginal_attr.items():
@@ -562,8 +500,9 @@ def get_objective(n, sns):
         )
         if cost.empty:
             continue
-        # TODO: Update this to linopy.
-        terms = linexpr((cost, get_var(n, c, attr).loc[sns, cost.columns])).sum().sum()
+        terms = linopy.LinearExpression.from_tuples(
+            (cost, n.model[f"{c}-{attr}"].loc[sns, cost.columns]
+        )).sum()
         total += terms
 
     # investment
@@ -573,40 +512,19 @@ def get_objective(n, sns):
         if cost.empty:
             continue
 
-        if n._multi_invest:
-            active = pd.concat(
-                {
-                    period: get_active_assets(n, c, period)[ext_i]
-                    for period in sns.unique("period")
-                },
-                axis=1,
-            )
-            cost = active @ period_weighting * cost
-
-        # TODO: Update this to linopy.
-        caps = get_var(n, c, attr).loc[ext_i]
-        terms = linexpr((cost, caps)).sum()
+        caps = n.model[f"{c}-{attr}"].loc[ext_i]
+        terms = linopy.LinearExpression.from_tuples((cost,caps)).sum()
         total += terms
 
     return total
 
 
-# This function is adapted from pypsa.linopf
+# This function is adapted from pypsa.linopf and updated to linopy.
 def get_total_cost(n):
     """Return the total cost of the network."""
     sns = n.snapshots
 
-    if n._multi_invest:
-        period_weighting = n.investment_period_weightings.objective[
-            sns.unique("period")
-        ]
-
-    if n._multi_invest:
-        weighting = n.snapshot_weightings.objective.mul(period_weighting, level=0).loc[
-            sns
-        ]
-    else:
-        weighting = n.snapshot_weightings.objective.loc[sns]
+    weighting = n.snapshot_weightings.objective.loc[sns]
 
     total = 0
 
@@ -617,16 +535,6 @@ def get_total_cost(n):
         cost = n.df(c)["capital_cost"][ext_i]
         if cost.empty:
             continue
-
-        if n._multi_invest:
-            active = pd.concat(
-                {
-                    period: get_active_assets(n, c, period)[ext_i]
-                    for period in sns.unique("period")
-                },
-                axis=1,
-            )
-            cost = active @ period_weighting * cost
 
         total += cost @ n.df(c)[attr][ext_i]
 
@@ -639,7 +547,7 @@ def get_total_cost(n):
         )
         if cost.empty:
             continue
-        terms = linexpr((cost, get_var(n, c, attr).loc[sns, cost.columns])).sum().sum()
+        terms = linopy.LinearExpression.from_tuples((cost, n.model[f"{c}-{attr}"].loc[sns, cost.columns])).sum().sum()
         total += terms
 
     # investment
@@ -649,19 +557,8 @@ def get_total_cost(n):
         if cost.empty:
             continue
 
-        if n._multi_invest:
-            active = pd.concat(
-                {
-                    period: get_active_assets(n, c, period)[ext_i]
-                    for period in sns.unique("period")
-                },
-                axis=1,
-            )
-            cost = active @ period_weighting * cost
-
-        # TODO: Update this to linopy.
-        caps = get_var(n, c, attr).loc[ext_i]
-        terms = linexpr((cost, caps)).sum()
+        caps = n.model[f"{c}-{attr}"].loc[ext_i]
+        terms = linopy.LinearExpression.from_tuples((cost,caps)).sum()
         total += terms
 
     return total
