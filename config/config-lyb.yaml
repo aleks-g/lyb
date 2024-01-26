@@ -59,6 +59,12 @@ near_opt_approx:
   # we stop the approximation.
   # angle_tolerance: 0.1
 
+# Specification of the sample points we want from the approximated near-optimal space.
+sample:
+  num_sample: 200
+  # Number of parallel solvers.
+  num_parallel: 24
+
 # Specification of the basis we project the near-optimal feasible space onto. 
 projection:
   onwind:
@@ -89,11 +95,13 @@ logging:
   datefmt: "%Y-%m-%d %H:%M:%S"
 
 # The following section is used as pypsa-longyearbyen configuration (updating its default config).
-# pypsa-longyearbyen:
-#   costs:
-#   storage:
-#   system:
-#   snapshots:
-#   solving:
-#     tmpdir: "./tmp"
+pypsa-longyearbyen:
+  costs:
+  storage:
+  system:
+  snapshots:
+  solving:
+    tmpdir: "./tmp"
+    threads: 2
+
 

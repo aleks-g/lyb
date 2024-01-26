@@ -26,14 +26,14 @@ from snakemake.utils import min_version
 # keyword support.
 min_version("7.0.1")
 
-# If we are running in cluster mode, set the shadow prefix to the $SCRATCH
-# directory. This will copy rule input files to the local scratch directory, and
-# output files back. This is to prevent too much load on the shared filesystem.
-if workflow.run_local and os.environ.get("SCRATCH") is not None:
-    workflow.shadow_prefix = os.environ.get("SCRATCH")
+# # If we are running in cluster mode, set the shadow prefix to the $SCRATCH
+# # directory. This will copy rule input files to the local scratch directory, and
+# # output files back. This is to prevent too much load on the shared filesystem.
+# if workflow.run_local and os.environ.get("SCRATCH") is not None:
+#     workflow.shadow_prefix = os.environ.get("SCRATCH")
 
-if workflow.shadow_prefix:
-    print(f"Using shadow prefix {workflow.shadow_prefix}")
+# if workflow.shadow_prefix:
+#     print(f"Using shadow prefix {workflow.shadow_prefix}")
 
 
 # First, validate the configuration files to make sure we do not make
@@ -64,14 +64,11 @@ print(
     f"If running compute_near_opt, using cache directory 'cache/{run_name}/{hash_run}'"
 )
 
-#TODO: Update this to PyPSA-LYB.
-# Extract the custom pypsa-eur config section from the top-level
+# Extract the custom pypsa-lyb config section from the top-level
 # workflow config, and update the "run" section.
 custom_pypsa_lyb_config = config["pypsa-longyearbyen"]
 custom_pypsa_lyb_config["run"]["name"] = run_name
-# Same for pypsa-eur-sec config
-custom_pypsa_eur_sec_config = config.get("pypsa-eur-sec", {})
-custom_pypsa_eur_sec_config["run"] = run_name
+
 # Read the default config, and update it using our custom config.
 with open(workflow.source_path("modules/pypsa-longyearbyen/config.yaml"), "r") as f:
     pypsa_lyb_config = yaml.safe_load(f)
@@ -187,6 +184,27 @@ if "scenario" in config:
                 ),
                 **config["scenario"]
             ),
+    rule sample_all:
+        input:
+            expand(
+                os.path.join(
+                    results_dir,
+                    "samples/" + spec + "_e{eps}_" + near_opt_hash,
+                    "flag.done",
+                ),
+                **config["scenario"]
+            ),
+
+
+rule build_network:
+    input:
+        "workflow/modules/pypsa-longyearbyen/networks/"
+        + run_name
+        + "/base.nc",
+    output:
+        os.path.join(networks_dir, "{spec}.nc"),
+    shell:
+        "cp {input} {output}"
 
 
 
@@ -261,19 +279,19 @@ def mga_runtime(wildcards):
 #TODO: Update to PyPSA_LYB
 rule mga:
     input:
-        network=os.path.join(networks_dir, "{name}{spec}.nc"),
-        optimum=os.path.join(results_dir, "optimum/{name}{spec}.csv"),
+        network=os.path.join(networks_dir, "{spec}.nc"),
+        optimum=os.path.join(results_dir, "optimum/{spec}.csv"),
         obj_bound=os.path.join(results_dir, "obj_bound/e{eps}_{scenarios_hash}"),
     output:
         # Example: "mga/1980-2020_Co2L-3H_e0.2uni1980-2020.csv"
         #               <-year-> <-spec--><--------eps------->
         mga_space=os.path.join(
-            results_dir, "mga/{name}{spec}_e{eps}_{scenarios_hash}.csv"
+            results_dir, "mga/{spec}_e{eps}_{scenarios_hash}.csv"
         ),
     log:
-        os.path.join("logs", run_name, "mga/{name}{spec}_e{eps}_{scenarios_hash}.log"),
+        os.path.join("logs", run_name, "mga/{spec}_e{eps}_{scenarios_hash}.log"),
         debug=directory(
-            os.path.join("debug", run_name, "mga/{name}{spec}_e{eps}_{scenarios_hash}")
+            os.path.join("debug", run_name, "mga/{spec}_e{eps}_{scenarios_hash}")
         ),
     conda:
         "envs/maa.fixed.yaml"
@@ -303,33 +321,33 @@ def near_opt_runtime(wildcards):
 # TODO: Update this to PyPSA-LYB.
 rule compute_near_opt:
     input:
-        network=os.path.join(networks_dir, "{name}{spec}.nc"),
+        network=os.path.join(networks_dir, "{spec}.nc"),
         mga_space=os.path.join(
-            results_dir, "mga/{name}{spec}_e{eps}_{scenarios_hash}.csv"
+            results_dir, "mga/{spec}_e{eps}_{scenarios_hash}.csv"
         ),
         obj_bound=os.path.join(results_dir, "obj_bound/e{eps}_{scenarios_hash}"),
     params:
         iterations=os.path.join(
             debug_dir,
-            "near_opt/{name}{spec}_e{eps}_{scenarios_hash}",
+            "near_opt/{spec}_e{eps}_{scenarios_hash}",
         ),
         cache=os.path.join(
             cache_dir,
-            "near_opt/{name}{spec}_e{eps}_{scenarios_hash}",
+            "near_opt/{spec}_e{eps}_{scenarios_hash}",
         ),
     output:
         # Example: "near_opt/1980-2020_Co2L-3H_e0.2uni1980-2020.csv"
         #                    <-year--> <-spec-><-------eps----->
         near_opt=os.path.join(
-            results_dir, "near_opt/{name}{spec}_e{eps}_{scenarios_hash}.csv"
+            results_dir, "near_opt/{spec}_e{eps}_{scenarios_hash}.csv"
         ),
     log:
         os.path.join(
-            "logs", run_name, "near_opt/{name}{spec}_e{eps}_{scenarios_hash}.log"
+            "logs", run_name, "near_opt/{spec}_e{eps}_{scenarios_hash}.log"
         ),
     benchmark:
         os.path.join(
-            "benchmarks", run_name, "near_opt/{name}{spec}_e{eps}_{scenarios_hash}.tsv"
+            "benchmarks", run_name, "near_opt/{spec}_e{eps}_{scenarios_hash}.tsv"
         )
     conda:
         "envs/maa.fixed.yaml"
@@ -347,4 +365,35 @@ rule compute_near_opt:
         "scripts/compute_near_opt.py"
 
 
-# TODO: Need a rule for solving the operations.
+rule sample_near-opt_space:
+    input:
+        network=os.path.join(networks_dir, "{spec}.nc"),
+        near_opt=os.path.join(
+            results_dir, "near_opt/{spec}_e{eps}_{scenarios_hash}.csv"
+        ),
+    params:
+        num_samples=config["sample"]["num_sample"],
+        num_parallel=config["sample"]["num_parallel"],
+    output:
+        os.path.join(
+            results_dir,
+            "samples",
+            "{spec}_e{eps}_{scenarios_hash}",
+            "flag.done",
+        ),
+    log:
+        os.path.join(
+            "logs", run_name, "samples/{spec}_e{eps}_{scenarios_hash}.log"
+        ),
+    conda:
+        "envs/maa.fixed.yaml"
+    resources:
+        mem_mb=10000 * num_parallel,
+        runtime=100 * (num_samples / num_parallel),
+        disk_mb=2000 * num_parallel,
+    retries: 3
+    threads: num_parallel * grb_threads
+    shadow:
+        "copy-minimal"
+    script:
+        "scripts/sample_near-opt_space.py"
