@@ -17,9 +17,8 @@ import numpy as np
 import pandas as pd
 import pypsa
 from pypsa.components import component_attrs, components
-from pypsa.descriptors import get_active_assets, get_extendable_i
+from pypsa.descriptors import get_active_assets, get_extendable_i, nominal_attrs
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense
-from pypsa.descriptors import nominal_attrs
 from pypsa.linopt import (
     write_bound,
     write_objective,
@@ -50,7 +49,7 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
             # First, get the respecified variables for _all_
             # components of the given type, for example p_nom for
             # _all_ generators.
-            vars = n.model[f"{spec["c"]}-{spec["v"]}"]
+            vars = n.model[f"{spec['c']}-{spec['v']}"]
 
             # Now, we filter down to a desired subset of variables,
             # following keywords given in the specification. First,
@@ -190,12 +189,13 @@ class BasisCapacities:
         if init is not None:
             # Make a copy of the initialising network, in case `init`
             # ever gets modified.
-            n = copy.deepcopy(init)
+            n = init.copy()
             self._n = n
             for key, dim in basis.items():
                 self._caps[key] = {}
                 for spec in dim:
                     # Initialise the dataframe of capacities.
+
                     v = spec["v"] if not use_opt else spec["v"] + "_opt"
 
                     if spec["c"] not in self._caps[key]:
@@ -203,14 +203,11 @@ class BasisCapacities:
 
                     # Extract the capacities.
                     caps = n.df(spec["c"])[v]
-
-                    # Filter by carrier and region
+                    # Filter by carrier
                     if "carrier" in spec:
                         caps = n.df(spec["c"]).loc[
                             n.df(spec["c"])["carrier"] == spec["carrier"]
                         ][v]
-
-                    
                     # Extract the coefficients.
                     coeffs = pd.Series(1, index=caps.index, name="coeffs")
                     if "weight" in spec:
@@ -220,11 +217,8 @@ class BasisCapacities:
                             factors = spec["weight"]
                         for f in factors:
                             coeffs *= n.df(spec["c"]).loc[caps.index, f]
-
                     if "scale_by_years" in spec:
                         coeffs /= n.snapshot_weightings.objective.sum() / 8760
-
-
                     # Store everything in the capacity datastructure.
                     df = pd.concat([coeffs, caps], axis="columns")
                     self._caps[key][spec["c"]] = pd.concat(
@@ -422,7 +416,7 @@ def solve_network_in_direction(
     """
 
     # Retrieve solver options from n.
-    solving_options = n.config["solving"]["options"]
+    # solving_options = n.config["solving"]["options"]
     solver_options = n.config["solving"]["solver"].copy()
     solver_name = solver_options.pop("name")
     tmpdir = n.config["solving"].get("tmpdir", None)
@@ -434,7 +428,7 @@ def solve_network_in_direction(
         # Add constraint to make solution near-optimal.
         n.model.add_constraints(
             get_objective(n, n.snapshots), "<=", max_obj, "Near_optimal"
-            )
+        )
 
         # Now, modify the objection function to point in the given
         # direction.
@@ -452,13 +446,14 @@ def solve_network_in_direction(
         # n.objective_constant = 0
 
     # No need to iteratively solve.
+    print("Ready to optimise", n.objective)
     status, condition = n.optimize(
         n,
         solver_name=solver_name,
         solver_options=solver_options,
         extra_functionality=extra_functionality,
         solver_dir=tmpdir,
-        #skip_objective=True,
+        # skip_objective=True,
         assign_all_duals=True,
     )
 
@@ -471,7 +466,7 @@ def solve_network_in_direction(
 # This function is adapted from pypsa.linopf and updated to linopy.
 def get_objective(n, sns):
     """Return the objective function as a linear expression."""
-       
+
     weighting = n.snapshot_weightings.objective.loc[sns]
 
     total = ""
@@ -488,7 +483,8 @@ def get_objective(n, sns):
         constant += cost @ n.df(c)[attr][ext_i]
 
     object_const = write_bound(n, constant, constant)
-    #total += linexpr((-1, object_const), as_pandas=False)[0]
+    # total += linexpr((-1, object_const), as_pandas=False)[0]
+    # TODO: Check how to take the first element from the LinearExpression.
     total += linopy.LinearExpression.from_tuples((-1, object_const))[0]
 
     # marginal cost
@@ -500,9 +496,10 @@ def get_objective(n, sns):
         )
         if cost.empty:
             continue
+        # TODO: This compatibility should probably work.
         terms = linopy.LinearExpression.from_tuples(
-            (cost, n.model[f"{c}-{attr}"].loc[sns, cost.columns]
-        )).sum()
+            (cost, n.model[f"{c}-{attr}"].loc[sns, cost.columns])
+        ).sum()
         total += terms
 
     # investment
@@ -513,7 +510,8 @@ def get_objective(n, sns):
             continue
 
         caps = n.model[f"{c}-{attr}"].loc[ext_i]
-        terms = linopy.LinearExpression.from_tuples((cost,caps)).sum()
+        # This compatibility should probably work.
+        terms = linopy.LinearExpression.from_tuples((cost, caps)).sum()
         total += terms
 
     return total
@@ -547,7 +545,14 @@ def get_total_cost(n):
         )
         if cost.empty:
             continue
-        terms = linopy.LinearExpression.from_tuples((cost, n.model[f"{c}-{attr}"].loc[sns, cost.columns])).sum().sum()
+        # TODO: This compatibility should probably work.
+        terms = (
+            linopy.LinearExpression.from_tuples(
+                (cost, n.model[f"{c}-{attr}"].loc[sns, cost.columns])
+            )
+            .sum()
+            .sum()
+        )
         total += terms
 
     # investment
@@ -558,7 +563,8 @@ def get_total_cost(n):
             continue
 
         caps = n.model[f"{c}-{attr}"].loc[ext_i]
-        terms = linopy.LinearExpression.from_tuples((cost,caps)).sum()
+        # TODO: This compatibility should probably work.
+        terms = linopy.LinearExpression.from_tuples((cost, caps)).sum()
         total += terms
 
     return total
@@ -686,3 +692,61 @@ def annual_variable_cost(
     # leap years.
     total /= n.snapshot_weightings.objective.sum() / 8760
     return total
+
+
+# This is from pypsa-eur. (__helpers.py)
+def configure_logging(snakemake, skip_handlers=False):
+    """
+    Configure the basic behaviour for the logging module.
+
+    Note: Must only be called once from the __main__ section of a script.
+
+    The setup includes printing log messages to STDERR and to a log file defined
+    by either (in priority order): snakemake.log.python, snakemake.log[0] or "logs/{rulename}.log".
+    Additional keywords from logging.basicConfig are accepted via the snakemake configuration
+    file under snakemake.config.logging.
+
+    Parameters
+    ----------
+    snakemake : snakemake object
+        Your snakemake object containing a snakemake.config and snakemake.log.
+    skip_handlers : True | False (default)
+        Do (not) skip the default handlers created for redirecting output to STDERR and file.
+    """
+    # First, set up the logging module.
+    import logging
+
+    kwargs = snakemake.config.get("logging", dict())
+    kwargs.setdefault("level", "INFO")
+
+    if skip_handlers is False:
+        fallback_path = Path(__file__).parent.joinpath(
+            "..", "logs", f"{snakemake.rule}.log"
+        )
+        logfile = snakemake.log.get(
+            "python", snakemake.log[0] if snakemake.log else fallback_path
+        )
+        kwargs.update(
+            {
+                "handlers": [
+                    # Prefer the 'python' log, otherwise take the first log for each
+                    # Snakemake rule
+                    logging.FileHandler(logfile),
+                    logging.StreamHandler(),
+                ]
+            }
+        )
+    logging.basicConfig(**kwargs)
+
+    # Also configure exceptions to be logged.
+    # (See https://stackoverflow.com/a/16993115)
+    def handle_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+
+        logging.error(
+            "Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback)
+        )
+
+    sys.excepthook = handle_exception
