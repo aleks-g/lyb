@@ -53,11 +53,12 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
     for key, dim in basis.items():
         summands = []
         for spec in dim:
-            # TODO: Update to linopy.
+            # TODO: Updated to linopy.
             # First, get the respecified variables for _all_
             # components of the given type, for example p_nom for
             # _all_ generators.
-            vars = get_var(n, spec["c"], spec["v"])
+            #vars = get_var(n, spec["c"], spec["v"])
+            vars = n.model[f"{spec["c"]}-{spec["v"]}"]
 
             # Now, we filter down to a desired subset of variables,
             # following keywords given in the specification. First,
@@ -69,7 +70,7 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
                     .index
                 ]
 
-            #TODO: Update to linopy
+            #TODO: Update to linopy?
             # Extract coefficients.
             coeffs = pd.Series(1, index=vars.index)
             if "weight" in spec:
@@ -92,7 +93,7 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
                 # time-frame of the network. Disregard leap years.
                 coeffs /= n.snapshot_weightings.objective.sum() / 8760
 
-            # TODO: Update to linopy
+            # TODO: Update to linopy?
             # Append the coefficients and variables to the complete linear summand.
             expr = pd.concat([coeffs, vars], axis="columns")
             expr.columns = ["coeffs", "vars"]
@@ -196,7 +197,7 @@ class BasisCapacities:
 
     def __init__(self, basis: OrderedDict, init: pypsa.Network = None, use_opt=False):
         """Initialise from a basis and optionally a PyPSA network."""
-        # TODO: Update to linopy
+        # TODO: Update to linopy?
         self._basis = basis
         self._caps = {}
         if init is not None:
@@ -456,14 +457,17 @@ def solve_network_in_direction(
         # Now, modify the objection function to point in the given
         # direction.
         basis_variables = get_basis_variables(n, basis)
+        # TODO: Update this to linopy.
         obj = pd.concat(
             [
                 linexpr((c * b.coeffs, b.vars))
                 for (c, b) in zip(direction, basis_variables.values())
             ]
         )
+        # TODO: Update this to linopy.
         write_objective(n, obj)
 
+        # TODO: Can be removed?
         # Set a constant objective, which is useless in this case but expected by `ilopf`.
         n.objective_constant = 0
 
@@ -471,6 +475,7 @@ def solve_network_in_direction(
         # sector-coupled model.
         sec_extra_functionality(n, n.snapshots)
 
+    # TODO: Update this to linopy.
     # Solve the network.
     if solving_options.get("skip_iterations", False):
         status, termination_condition = network_lopf(

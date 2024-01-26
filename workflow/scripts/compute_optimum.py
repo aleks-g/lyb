@@ -28,6 +28,7 @@ if __name__ == "__main__":
     configure_logging(snakemake)
 
     # Load the network and solving options.
+    # TODO: Update to linopy.
     overrides = override_component_attrs(snakemake.params.overrides)
     n = pypsa.Network(snakemake.input.network, override_component_attrs=overrides)
     solving_options = snakemake.config["pypsa-eur"]["solving"]["options"]
@@ -48,6 +49,7 @@ if __name__ == "__main__":
     # coordinates in the basis.
     logging.info("Compute initial, optimal solution.")
     t = time.time()
+    # TODO: Update to linopy.
     if solving_options.get("skip_iterations", False):
         status, _ = network_lopf(
             n,
