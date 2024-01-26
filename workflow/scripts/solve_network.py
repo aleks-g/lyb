@@ -1,1 +1,0 @@
-../modules/pypsa-eur-sec/scripts/solve_network.py
