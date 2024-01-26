@@ -6,11 +6,11 @@
 name: "lyb"
 
 scenario:
-  eps:
-  simpl:
-  planning_horizon:
-  opts:
-  year:
+  eps: "0.05uni"
+  simpl: ""
+  planning_horizon: "2050"
+  opts: ""
+  year: "2015"
 
 # The following config section relates to how the near-optimal
 # feasible space is approximated.
@@ -24,7 +24,7 @@ near_opt_approx:
   directions_angle_separation: 45
   # The number of parallel solvers used in the near-optimal feasible
   # space approximation.
-  num_parallel_solvers: 10
+  num_parallel_solvers: 1
 
   # Convergence configuration. All in all, the below means that the
   # near-optimal space approximation will terminate when the volume
@@ -68,14 +68,16 @@ sample:
 # Specification of the basis we project the near-optimal feasible space onto. 
 projection:
   onwind:
-  offwind:
+  - {c: "Generator", v: "p_nom", carrier: "onwind", weight: "capital_cost", scale_by_years: True}
+  #offwind:
   solar:
-  geothermal:
-  bioenergy:
-  heat-storage:
-  battery:
-  h2:
-  demand:
+  - {c: "Generator", v: "p_nom", carrier: "PV", weight: "capital_cost", scale_by_years: True}
+  #geothermal:
+  #bioenergy:
+  #heat-storage:
+  # battery:
+  # h2:
+  # demand:
 
 # Provide some readable labels of the above dimensions for figures.
 projection_labels:
@@ -96,13 +98,24 @@ logging:
 
 # The following section is used as pypsa-longyearbyen configuration (updating its default config).
 pypsa-longyearbyen:
-  costs:
-  storage:
-  system:
-  snapshots:
+  #costs:
+  #storage:
+  #system:
+
+  #snapshots:
   solving:
     tmpdir: "./tmp"
     threads: 2
-    options:
+    solver:
+      name: gurobi
+      threads: 4
+      methods: 2
+      crossover: 0
+      BarConvTol: 1.e-5
+      FeasibilityTol: 1.e-6
+      AggFill: 0
+      PreDual: 0
+      GURO_PAR_BARDENSETHRESH: 200
+
 
 

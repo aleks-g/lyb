@@ -31,7 +31,7 @@ from pypsa.linopf import ilopf, network_lopf
 from pypsa.linopt import define_constraints, linexpr
 from solve_network import extra_functionality as sec_extra_functionality
 from solve_network import prepare_network
-from utilities import get_basis_variables, override_component_attrs
+from utilities import get_basis_variables
 from workflow_utilities import parse_net_spec
 
 

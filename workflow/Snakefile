@@ -67,10 +67,10 @@ print(
 # Extract the custom pypsa-lyb config section from the top-level
 # workflow config, and update the "run" section.
 custom_pypsa_lyb_config = config["pypsa-longyearbyen"]
-custom_pypsa_lyb_config["run"]["name"] = run_name
+#custom_pypsa_lyb_config["run"]["name"] = run_name
 
 # Read the default config, and update it using our custom config.
-with open(workflow.source_path("modules/pypsa-longyearbyen/config.yaml"), "r") as f:
+with open(workflow.source_path("modules/pypsa-longyearbyen/config.yml"), "r") as f:
     pypsa_lyb_config = yaml.safe_load(f)
 snakemake.utils.update_config(pypsa_lyb_config, custom_pypsa_lyb_config)
 
@@ -78,7 +78,7 @@ snakemake.utils.update_config(pypsa_lyb_config, custom_pypsa_lyb_config)
 # TODO: Update this to PyPSA-LYB.
 # Set the number of threads to use for network optimisations.
 # Note: This may need to be changed if a different solver than Gurobi is used.
-grb_threads = config["pypsa-longyearbyen"]["solving"]["solver"]["threads"]
+grb_threads = config["pypsa-longyearbyen"]["solving"]["threads"]
 parallel_threads = grb_threads * config["near_opt_approx"]["num_parallel_solvers"]
 
 # TODO: Update this to PyPSA-LYB.
@@ -150,11 +150,10 @@ localrules:
     compute_all_near_opt,
     calc_obj_bound,
 
-# TODO: Update this to PyPSA-LYB.
-# localrules:
-#     pypsalyb_all,
-#     pypsalyb_solve_all_networks,
-
+localrules:
+    pypsalyb_load_data,
+    pypsalyb_build_network,
+    pypsalyb_solve_network,
 
 
 if "scenario" in config:
@@ -227,7 +226,7 @@ rule compute_optimum:
     resources:
         mem_mb=10000,
         runtime=100,
-    retries: 3
+    # retries: 3
     threads: grb_threads
     shadow:
         "copy-minimal"
@@ -297,11 +296,9 @@ rule mga:
         "envs/maa.fixed.yaml"
     resources:
         mem_mb=near_opt_memory, 
-        runtime=lambda wildcards: min(
-            MAX_RUNTIME, mga_runtime(wildcards)
-        ),
+        runtime=100,
         disk_mb=2 * len(config["projection"]) * 2000,
-    retries: 3
+    # retries: 3
     # Make snakemake prioritise finishing these runs before compute_near_opt
     priority: 10
     threads: parallel_threads
@@ -316,7 +313,7 @@ def near_opt_runtime(wildcards):
     num_parallel = int(config["near_opt_approx"].get("num_parallel_solvers", 1))
     num_opts = int(config["near_opt_approx"]["iterations"])
     # Give some slack (factor of 1.2) just in case.
-    return 1.2 * (num_opts / num_parallel) * opt_time_exp(wildcards)
+    return 1.2 * (num_opts / num_parallel) * 5
 
 # TODO: Update this to PyPSA-LYB.
 rule compute_near_opt:
@@ -354,10 +351,8 @@ rule compute_near_opt:
     resources:
         mem_mb=near_opt_memory,
         disk_mb=config["near_opt_approx"]["iterations"] * 2000,
-        runtime=lambda wildcards: min(
-            MAX_RUNTIME, near_opt_runtime(wildcards)
-        ),
-    retries: 3
+        runtime=lambda wildcards: near_opt_runtime(wildcards),
+    # retries: 3
     threads: parallel_threads
     shadow:
         "copy-minimal"
@@ -365,35 +360,35 @@ rule compute_near_opt:
         "scripts/compute_near_opt.py"
 
 
-rule sample_near-opt_space:
-    input:
-        network=os.path.join(networks_dir, "{spec}.nc"),
-        near_opt=os.path.join(
-            results_dir, "near_opt/{spec}_e{eps}_{scenarios_hash}.csv"
-        ),
-    params:
-        num_samples=config["sample"]["num_sample"],
-        num_parallel=config["sample"]["num_parallel"],
-    output:
-        os.path.join(
-            results_dir,
-            "samples",
-            "{spec}_e{eps}_{scenarios_hash}",
-            "flag.done",
-        ),
-    log:
-        os.path.join(
-            "logs", run_name, "samples/{spec}_e{eps}_{scenarios_hash}.log"
-        ),
-    conda:
-        "envs/maa.fixed.yaml"
-    resources:
-        mem_mb=10000 * num_parallel,
-        runtime=100 * (num_samples / num_parallel),
-        disk_mb=2000 * num_parallel,
-    retries: 3
-    threads: num_parallel * grb_threads
-    shadow:
-        "copy-minimal"
-    script:
-        "scripts/sample_near-opt_space.py"
+# rule sample_near-opt_space:
+#     input:
+#         network=os.path.join(networks_dir, "{spec}.nc"),
+#         near_opt=os.path.join(
+#             results_dir, "near_opt/{spec}_e{eps}_{scenarios_hash}.csv"
+#         ),
+#     params:
+#         num_samples=config["sample"]["num_sample"],
+#         num_parallel=config["sample"]["num_parallel"],
+#     output:
+#         os.path.join(
+#             results_dir,
+#             "samples",
+#             "{spec}_e{eps}_{scenarios_hash}",
+#             "flag.done",
+#         ),
+#     log:
+#         os.path.join(
+#             "logs", run_name, "samples/{spec}_e{eps}_{scenarios_hash}.log"
+#         ),
+#     conda:
+#         "envs/maa.fixed.yaml"
+#     resources:
+#         mem_mb=10000 * num_parallel,
+#         runtime=100 * (num_samples / num_parallel),
+#         disk_mb=2000 * num_parallel,
+#     retries: 3
+#     threads: num_parallel * grb_threads
+#     shadow:
+#         "copy-minimal"
+#     script:
+#         "scripts/sample_near-opt_space.py"

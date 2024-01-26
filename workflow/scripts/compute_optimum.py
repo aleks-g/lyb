@@ -9,9 +9,8 @@ import time
 import warnings
 from pathlib import Path
 
-from _helpers import configure_logging
 from utilities import get_basis_values
-from workflow_utilities import parse_net_spec
+from workflow_utilities import parse_net_spec, configure_logging
 
 # Ignore futurewarnings raised by pandas from inside pypsa, at least
 # until the warning is fixed. This needs to be done _before_ pypsa and
@@ -27,9 +26,7 @@ if __name__ == "__main__":
 
     # Load the network and solving options.
     n = pypsa.Network(snakemake.input.network)
-    solving_options = snakemake.config["pypsa-longyearbyen"]["solving"]["options"]
-    solver_options = snakemake.config["pypsa-longyearbyen"]["solving"]["solver"].copy()
-    solver_name = solver_options.pop("name")
+    solver_name = snakemake.config["pypsa-longyearbyen"]["solving"]["solver"]["name"]
     tmpdir = snakemake.config["pypsa-longyearbyen"]["solving"].get("tmpdir", None)
     if tmpdir is not None:
         Path(tmpdir).mkdir(parents=True, exist_ok=True)
@@ -44,9 +41,8 @@ if __name__ == "__main__":
     t = time.time()
     # Do not need to have iterations, as there is no transmission.
     status, condition = n.optimize(
-        n,
         solver_name=solver_name,
-        solver_options=solver_options,
+        # solver_options=solver_options,
         assign_all_duals=True,
         solver_dir=tmpdir,
     )
@@ -64,7 +60,7 @@ if __name__ == "__main__":
         # Write the result to the given output files. Save the objective
         # value for further processing.
         n.export_to_netcdf(snakemake.output.optimum)
-        opt_point = get_basis_values(n, snakemake.config["projection"])
+        opt_point = get_basis_values(n, snakemake.config["projection"], use_opt=True)
         pd.DataFrame(opt_point, index=[0]).to_csv(snakemake.output.optimal_point)
         with open(snakemake.output.obj, "w") as f:
             f.write(str(n.objective))

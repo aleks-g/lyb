@@ -143,7 +143,7 @@ def parse_net_spec(spec: str) -> dict:
     # Build the complete regex out of the individual groups
     full_regex_pypsa_lyb = (
         f"({G['year']}_)?"
-        f"{G['simpl']}_{G['clusters']}_{G['lv']}_{G['sector_opts']}_{G['planning_horizon']}"
+        f"{G['simpl']}_{G['opts']}_{G['planning_horizon']}"
         f"(_e{G['eps']})?"
     )
     m = re.search(full_regex_pypsa_lyb, spec)

@@ -21,10 +21,7 @@ from multiprocessing import Pool, get_context
 from pathlib import Path
 
 import numpy as np
-from utilities import (
-    get_basis_values,
-    solve_network_in_direction,
-)
+from utilities import get_basis_values, solve_network_in_direction
 from workflow_utilities import parse_net_spec, configure_logging
 
 # Ignore futurewarnings raised by pandas from inside pypsa, at least
@@ -106,7 +103,6 @@ def mga(
     # Make some easy-to-read descriptions for the directions.
     comps = list(basis.keys())
     descriptions = ["min_" + c for c in comps] + ["max_" + c for c in comps]
-
     # Start a pool of worker processes:
     logging.info("Starting MGA optimisations.")
     with get_context("spawn").Pool(num_parallel_solvers) as pool:
@@ -146,6 +142,7 @@ def mga_worker(
 
     # Solve the network.
     t = time.time()
+
     status, termination_condition = solve_network_in_direction(
         m, direction, basis, obj_bound
     )
