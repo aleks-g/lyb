@@ -31,10 +31,7 @@ from geometry import (
     uniform_random_hypersphere_sampler,
 )
 from scipy.spatial import ConvexHull
-from utilities import (
-    get_basis_values,
-    solve_network_in_direction,
-)
+from utilities import get_basis_values, solve_network_in_direction, optimize_near_opt
 from workflow_utilities import parse_net_spec, configure_logging
 
 # Ignore futurewarnings raised by pandas from inside pypsa, at least
@@ -181,7 +178,10 @@ def compute_near_opt(
 
     # Work on a copy of n so we do not modify the argument of this function.
     m: pypsa.Network
-    m = copy.deepcopy(n)
+    m = n.copy()
+    m.config = n.config
+    m.opts = n.opts
+    m.objective = n.objective
 
     # Load the points generated during MGA. This dataframe is indexed
     # starting at -1, with the '-1'-th point being the optimum
@@ -586,11 +586,14 @@ def solve_worker(
 
     # Do the optimisation in the given direction.
     t = time.time()
-    r = copy.deepcopy(n)
-    status, _ = solve_network_in_direction(r, dir, basis, obj_bound)
+    r = n.copy()
+    r.config = n.config
+    r.opts = n.opts
+    r.objective = n.objective
+    # status, _ = solve_network_in_direction(r, dir, basis, obj_bound)
+    status, _, wr = optimize_near_opt(r, dir, basis, obj_bound)
     solve_time = round(time.time() - t)
     print(f"{worker_name}: Finishing optimisation in {solve_time} seconds.")
-
     # Store the network. Note: using a write lock here is a tad
     # defensive, but it appears that things can sometimes get blocked
     # otherwise.
@@ -599,7 +602,7 @@ def solve_worker(
         # Catch any filesystem errors we might get while trying to
         # write the network.
         try:
-            r.export_to_netcdf(
+            wr.export_to_netcdf(
                 fn,
                 compression={
                     "complevel": 1,

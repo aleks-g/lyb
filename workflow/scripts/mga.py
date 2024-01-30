@@ -21,7 +21,7 @@ from multiprocessing import Pool, get_context
 from pathlib import Path
 
 import numpy as np
-from utilities import get_basis_values, solve_network_in_direction
+from utilities import get_basis_values, solve_network_in_direction, optimize_near_opt
 from workflow_utilities import parse_net_spec, configure_logging
 
 # Ignore futurewarnings raised by pandas from inside pypsa, at least
@@ -87,6 +87,7 @@ def mga(
     m = n.copy()
     m.config = n.config
     m.opts = n.opts
+    m.objective = n.objective
 
     # Prepare the near-optimal feasible space, represented by a
     # collection of points. Initially, it just contains the optimal
@@ -139,26 +140,26 @@ def mga_worker(
     m = n.copy()
     m.config = n.config
     m.opts = n.opts
-
+    m.objective = n.objective
     # Solve the network.
     t = time.time()
-
-    status, termination_condition = solve_network_in_direction(
-        m, direction, basis, obj_bound
-    )
+    # status, termination_condition = solve_network_in_direction(
+    #     m, direction, basis, obj_bound
+    # )
+    status, termination_condition, r = optimize_near_opt(m, direction, basis, obj_bound)
     solve_time = round(time.time() - t)
     print(f"{worker_name}: Finished solving for {description} in {solve_time} seconds")
 
     # Export the network for debug purposes. Don't worry if this fails
     # for some reason.
     try:
-        m.export_to_netcdf(
+        r.export_to_netcdf(
             os.path.join(debug_dir, f"{description}.nc"),
-            compression={
-                "complevel": 1,
-                "zlib": True,
-                "least_significant_digit": 3,
-            },
+            # compression={
+            #     "complevel": 1,
+            #     "zlib": True,
+            #     "least_significant_digit": 3,
+            # },
         )
     except Exception as e:
         print(f"{worker_name}: Failed to export network for {description}: {e}")
@@ -213,7 +214,7 @@ if __name__ == "__main__":
         basis=snakemake.config["projection"],
         opt_point=opt_point,
         obj_bound=obj_bound,
-        debug_dir=snakemake.log.debug,
+        debug_dir=snakemake.params.iterations,
         num_parallel_solvers=snakemake.config["near_opt_approx"].get(
             "num_parallel_solvers", 1
         ),

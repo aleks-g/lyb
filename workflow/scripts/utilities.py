@@ -91,6 +91,66 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
     return proj_basis
 
 
+def translate_basis_variables(n: pypsa.Network, basis: dict) -> dict:
+    """Follow `get_basis_variables` to get a dictionary that can be used for pypsa.optimize.optimize_mga.
+    Note that `n` needs to be solved already."""
+
+    # For each dimension, get the values of the variables in the basis.
+    components = {}
+
+    # assert hasattr(
+    #     n, "objective"
+    # ), "Network needs to be solved with `n.optimize()` before running MGA."
+
+    m = n.optimize.create_model()
+    for key, dim in basis.items():
+        summands = []
+        for spec in dim:
+            # First, get the respecified variables for _all_
+            # components of the given type, for example p_nom for
+            # _all_ generators.
+            vars = m[f"{spec['c']}-{spec['v']}"]
+            # Now, we filter down to a desired subset of variables,
+            # following keywords given in the specification. First,
+            # narrow down to a given carrier.
+            if "carrier" in spec:
+                vars = vars.loc[
+                    n.df(spec["c"])
+                    .loc[n.df(spec["c"])["carrier"] == spec["carrier"]]
+                    .index
+                ]
+            # Extract coefficients.
+            label = [c for c in vars.coords][0]
+            coeffs = pd.Series(1, index=vars.data[label])
+            if "weight" in spec:
+                # We allow spec["weight"] to be either a string or an
+                # iterable of strings. Either way, the variable
+                # coefficients are multiplied by the values in the
+                # component dataframe columns given by the(se) string(s).
+                if isinstance(spec["weight"], str):
+                    factors = [spec["weight"]]
+                else:
+                    factors = spec["weight"]
+                for f in factors:
+                    coeffs *= n.df(spec["c"]).loc[coeffs.index, f]
+            if "scale_by_years" in spec:
+                # In this case we scale the coefficients down by the
+                # number of years over which the network is defined.
+                # This can be useful for example when the coefficients
+                # are given by costs which can depend on the
+                # time-frame of the network. Disregard leap years.
+                coeffs /= n.snapshot_weightings.objective.sum() / 8760
+
+            # Append the coefficients and variables to the complete linear summand.
+            # expr = pd.concat([coeffs, vars], axis="columns")
+            # expr.columns = ["coeffs", "vars"]
+            # summands.append(expr)
+            summands.append(vars * coeffs)
+        # proj_basis[key] = pd.concat(summands, axis="rows")
+        components[key] = summands
+    return components
+
+
 def get_basis_values(n: pypsa.Network, basis: OrderedDict, use_opt=True) -> OrderedDict:
     """Get the coordinates of a solved PyPSA network `n` in the given basis.
 
@@ -390,6 +450,69 @@ def set_nom_to_opt(n: pypsa.Network) -> None:
         n.df(c).loc[i, attr] = n.df(c).loc[i, attr + "_opt"].dropna()
 
 
+def optimize_near_opt(
+    n: pypsa.Network,
+    direction: Sequence[float],
+    basis: OrderedDict = None,
+    max_obj: float = np.inf,
+    snapshots=None,
+    multi_investment_periods=False,
+) -> None:
+    """Solve the network `n` with custom objective function."""
+    print("Start near-optimal optimisation.")
+    solver_options = n.config["solving"]["solver"].copy()
+    solver_name = solver_options.pop("name")
+    tmpdir = n.config["solving"].get("tmpdir", None)
+    if tmpdir is not None:
+        Path(tmpdir).mkdir(parents=True, exist_ok=True)
+
+    if multi_investment_periods:
+        raise ValueError("Multi-investment periods not yet implemented.")
+
+    if snapshots is None:
+        snapshots = n.snapshots
+    else:
+        raise ValueError("Snapshots not yet implemented.")
+
+    # Weights not implemented yet.
+
+    # check that network has been solved
+    # assert hasattr(
+    #     n, "objective"
+    # ), "Network needs to be solved with `n.optimize()` before running MGA."
+
+    # create basic model
+    m = n.optimize.create_model(
+        snapshots=snapshots,
+        multi_investment_periods=multi_investment_periods,
+        # **model_kwargs,
+    )
+    print("Set up model.")
+    # Add budget constraint.
+    m.add_constraints(get_objective(n, n.snapshots), "<=", max_obj, "Near_optimal")
+    # Build alternate objective
+    vars = translate_basis_variables(n, basis)
+    objective = []
+    for weights, dir in zip(vars.values(), direction):
+        for summand in weights:
+            objective.append(summand * dir)
+    m.objective = linopy.merge(objective)
+    print("Ready to optimise", m.objective)
+    n.model = m
+    status, condition = n.optimize.solve_model(
+        solver_name=solver_name,
+        solver_options=solver_options,
+        solver_dir=tmpdir,
+        assign_all_duals=True,
+    )
+    # TODO: Hide warning that the shadow prices to the near-optimal constraint were not assigned
+
+    # Write near-opt coefficients into metadata.
+    n.meta["max_obj"] = max_obj
+    n.meta["direction"] = list(direction)
+    return status, condition, n
+
+
 def solve_network_in_direction(
     n: pypsa.Network,
     direction: Sequence[float],
@@ -426,12 +549,14 @@ def solve_network_in_direction(
     def extra_functionality(n, snapshots):
         """Enforce near-optimality and define a custom objective."""
         # Add constraint to make solution near-optimal.
+        # TODO: Currently this is a bit cumbersome with the get_objective function, and could be streamlined towards the implementation of pypsa.optimize_mga. In particular this could be combined into one function.
         n.model.add_constraints(
             get_objective(n, n.snapshots), "<=", max_obj, "Near_optimal"
         )
 
         # Now, modify the objection function to point in the given
         # direction.
+        # TODO: This should probably follow the alternative objective function in pypsa.optimize_mga. (l. 403-417). Probably we would need to be able to translate "our" basis_variables to their weights..
         basis_variables = get_basis_variables(n, basis)
         obj = pd.concat(
             [
@@ -447,6 +572,7 @@ def solve_network_in_direction(
 
     # No need to iteratively solve.
     print("Ready to optimise", n.objective)
+    # TODO: Since this model would already be created (does it really need to be created already?), we could isntead only run n.optimize.solve_model(). Or rather m.solve_model? Need to read up on this.
     status, condition = n.optimize(
         n,
         solver_name=solver_name,
@@ -463,7 +589,7 @@ def solve_network_in_direction(
     return status, condition
 
 
-# This function is adapted from pypsa.linopf and updated to linopy.
+# This function is adapted from pypsa.linopf and updated to linopy. Later updated to pypsa.optimize.
 def get_objective(n, sns):
     """Return the objective function as a linear expression."""
 
@@ -471,6 +597,13 @@ def get_objective(n, sns):
 
     total = ""
 
+    m = n.optimize.create_model()
+
+    # budget constraint
+    optimal_cost = (n.statistics.capex() + n.statistics.opex()).sum()
+
+    # TODO: can replace this with the following once it works:
+    # fixed_cost = n.statistics.installed_capex().sum()
     # constant for already done investment
     nom_attr = nominal_attrs.items()
     constant = 0
@@ -482,37 +615,43 @@ def get_objective(n, sns):
 
         constant += cost @ n.df(c)[attr][ext_i]
 
-    object_const = write_bound(n, constant, constant)
+    objective = m.objective
+
+    # object_const = write_bound(n, constant, constant)
     # total += linexpr((-1, object_const), as_pandas=False)[0]
     # TODO: Check how to take the first element from the LinearExpression.
-    total += linopy.LinearExpression.from_tuples((-1, object_const))[0]
+    # total += linopy.LinearExpression.from_tuples((-1, object_const))[0]
 
-    # marginal cost
-    for c, attr in marginal_attr.items():
-        cost = (
-            get_as_dense(n, c, "marginal_cost", sns)
-            .loc[:, lambda ds: (ds != 0).all()]
-            .mul(weighting, axis=0)
-        )
-        if cost.empty:
-            continue
-        # TODO: This compatibility should probably work.
-        terms = linopy.LinearExpression.from_tuples(
-            (cost, n.model[f"{c}-{attr}"].loc[sns, cost.columns])
-        ).sum()
-        total += terms
+    # # marginal cost
+    # for c, attr in marginal_attr.items():
+    #     cost = (
+    #         get_as_dense(n, c, "marginal_cost", sns)
+    #         .loc[:, lambda ds: (ds != 0).all()]
+    #         .mul(weighting, axis=0)
+    #     )
+    #     if cost.empty:
+    #         continue
+    #     # TODO: This compatibility should probably work.
+    #     terms = linopy.LinearExpression.from_tuples(
+    #         (cost, n.model[f"{c}-{attr}"].loc[sns, cost.columns])
+    #     ).sum()
+    #     total += terms
 
-    # investment
-    for c, attr in nominal_attrs.items():
-        ext_i = get_extendable_i(n, c)
-        cost = n.df(c)["capital_cost"][ext_i]
-        if cost.empty:
-            continue
+    #
 
-        caps = n.model[f"{c}-{attr}"].loc[ext_i]
-        # This compatibility should probably work.
-        terms = linopy.LinearExpression.from_tuples((cost, caps)).sum()
-        total += terms
+    # # investment
+    # for c, attr in nominal_attrs.items():
+    #     ext_i = get_extendable_i(n, c)
+    #     cost = n.df(c)["capital_cost"][ext_i]
+    #     if cost.empty:
+    #         continue
+
+    #     caps = n.model[f"{c}-{attr}"].loc[ext_i]
+    #     # This compatibility should probably work.
+    #     terms = linopy.LinearExpression.from_tuples((cost, caps)).sum()
+    #     total += terms
+
+    total = objective + float(constant)
 
     return total
 
