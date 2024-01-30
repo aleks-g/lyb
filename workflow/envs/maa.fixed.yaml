@@ -139,7 +139,8 @@ dependencies:
   - libxml2=2.10.4
   - libzip=1.9.2
   - libzlib=1.2.13
-  - linopy=0.1.5
+  #- linopy=0.1.5
+  - linopy=0.2
   - locket=1.0.0
   - lz4-c=1.9.4
   - lzo=2.10
@@ -193,7 +194,8 @@ dependencies:
   - pyopenssl=23.1.1
   - pyparsing=3.0.9
   - pyproj=3.5.0
-  - pypsa=0.23.0
+  #- pypsa=0.23.0
+  - pypsa=0.26.0
   - pyshp=2.3.1
   - pysocks=1.7.1
   - pytables=3.8.0
