@@ -278,7 +278,7 @@ def mga_runtime(wildcards):
 #TODO: Update to PyPSA_LYB
 rule mga:
     input:
-        network=os.path.join(networks_dir, "{spec}.nc"),
+        network=os.path.join(results_dir, "optimum/{spec}.nc"),
         optimum=os.path.join(results_dir, "optimum/{spec}.csv"),
         obj_bound=os.path.join(results_dir, "obj_bound/e{eps}_{scenarios_hash}"),
     output:
@@ -287,11 +287,13 @@ rule mga:
         mga_space=os.path.join(
             results_dir, "mga/{spec}_e{eps}_{scenarios_hash}.csv"
         ),
+    params:
+        iterations=os.path.join(
+            debug_dir,
+            "mga/{spec}_e{eps}_{scenarios_hash}",
+        ),
     log:
         os.path.join("logs", run_name, "mga/{spec}_e{eps}_{scenarios_hash}.log"),
-        debug=directory(
-            os.path.join("debug", run_name, "mga/{spec}_e{eps}_{scenarios_hash}")
-        ),
     conda:
         "envs/maa.fixed.yaml"
     resources:
@@ -318,7 +320,7 @@ def near_opt_runtime(wildcards):
 # TODO: Update this to PyPSA-LYB.
 rule compute_near_opt:
     input:
-        network=os.path.join(networks_dir, "{spec}.nc"),
+        network=os.path.join(results_dir, "optimum/{spec}.nc"),
         mga_space=os.path.join(
             results_dir, "mga/{spec}_e{eps}_{scenarios_hash}.csv"
         ),
