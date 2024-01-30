@@ -24,21 +24,21 @@ near_opt_approx:
   directions_angle_separation: 45
   # The number of parallel solvers used in the near-optimal feasible
   # space approximation.
-  num_parallel_solvers: 1
+  num_parallel_solvers: 10
 
   # Convergence configuration. All in all, the below means that the
   # near-optimal space approximation will terminate when the volume
   # changes by less than `conv_epsilon` percent for any `conv_iterations` 
   # consecutive iterations, or after `iterations` iterations at most. 
   # Number of iterations.
-  iterations: 30
+  iterations: 1500
   # Convergence method, either "centre" or "volume".
   conv_method: "volume"
   # Convergence epsilon in percent.
   conv_epsilon: 0.5
   # Number of iterations for which the convergence criterion must be
   # below the convergence epsilon before the approximation stops.
-  conv_iterations: 50
+  conv_iterations: 200
 
   # Command line options for the `qhull` program, which is used to
   # compute convex hulls, may be defined here. Whatever the options
@@ -76,7 +76,9 @@ projection:
   #bioenergy:
   #heat-storage:
   # battery:
+  # - {c: "StorageUnit", v: "p_nom", carrier: "battery", weight: "capital_cost", scale_by_years: True}
   # h2:
+  # - {c: "StorageUnit", v: "p_nom", carrier: "H2", weight: "capital_cost", scale_by_years: True}
   # demand:
 
 # Provide some readable labels of the above dimensions for figures.
