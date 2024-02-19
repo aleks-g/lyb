@@ -496,7 +496,7 @@ def optimize_near_opt(
     for weights, dir in zip(vars.values(), direction):
         for summand in weights:
             objective.append(summand * dir)
-    m.objective = linopy.merge(objective)
+    m.objective = linopy.merge([obj.sum() for obj in objective])
     print("Ready to optimise", m.objective)
     n.model = m
     status, condition = n.optimize.solve_model(
