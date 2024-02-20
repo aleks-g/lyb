@@ -390,12 +390,12 @@ rule sample_near_opt_space:
     params:
         num_parallel=config["sample"]["num_parallel"],
     output:
-        flag = os.path.join(
-            results_dir,
-            "samples",
-            "{spec}_e{eps}_{scenarios_hash}",
-            "flag.done",
-        ),
+        # flag = os.path.join(
+        #     results_dir,
+        #     "samples",
+        #     "{spec}_e{eps}_{scenarios_hash}",
+        #     "flag.done",
+        # ),
         samples = os.path.join(
             results_dir,
             "samples",

@@ -28,12 +28,8 @@ import pypsa
 import linopy
 from _helpers import configure_logging
 from geometry import filter_vectors_auto, uniform_random_hypersphere_sampler, ch_centre
-from pypsa.linopf import ilopf, network_lopf
-from pypsa.linopt import define_constraints, linexpr
 #from solve_network import extra_functionality as sec_extra_functionality
-from solve_network import prepare_network
 from utilities import get_basis_variables
-from workflow_utilities import parse_net_spec
 from scipy.spatial import ConvexHull
 
 def get_intersection_vertices(
@@ -137,7 +133,6 @@ def compute_networks(
     tmpdir = n.config["solving"].get("tmpdir", None)
     if tmpdir is not None:
         Path(tmpdir).mkdir(parents=True, exist_ok=True)
-    #m = prepare_network(m, solving_options, config=n.config)
 
     # Take a point that's a little towards to the centre of the intersection
     buffer = 0.01
@@ -147,7 +142,6 @@ def compute_networks(
         """Extra functionality to set total capacities on pypsa-eur network."""
         basis_variables = get_basis_variables(n, basis)
         # Add constraint to make the solution near-optimal.
-        # TODO: Update this to linopy.
         for key in basis_variables:
             x = basis_variables[key]
             b = point[key]
@@ -155,13 +149,6 @@ def compute_networks(
             # Define lower and upper constraints in the given basis
             # dimension, fixing the coordinates.
             name = f"fixed_investment_{key}"
-            # n.add(
-            #     "GlobalConstraint",
-            #     name,
-            #     sense="==",
-            #     type="investment",
-            #     carrier_attribute=key,
-            # )
             n.model.add_constraints(
                 linopy.LinearExpression.from_tuples((scaling_factor * x.coeffs, x.vars)).sum(),
                 "==",
@@ -170,23 +157,7 @@ def compute_networks(
                 attr="mu",
                 axes=pd.Index([name]),
             )
-            # define_constraints(
-            #     n,
-            #     linexpr((scaling_factor * x.coeffs, x.vars)).sum(),
-            #     "==",
-            #     scaling_factor * b,
-            #     name="GlobalConstraint",
-            #     attr="mu",
-            #     axes=pd.Index([name]),
-            #     spec=name,
-            # )
-
-        # # Run the additional extra functionality from the
-        # # sector-coupled model.
-        # sec_extra_functionality(n, n.snapshots)
-
-    # TODO: Update this to linopy.
-        
+      
     status, condition = n.optimize(
         n,
         solver_name=solver_name,
@@ -196,35 +167,6 @@ def compute_networks(
         # skip_objective=True,
         assign_all_duals=True,
     )
-
-    # if solving_options.get("skip_iterations", False):
-    #     status, _ = network_lopf(
-    #         m,
-    #         solver_name=solver_name,
-    #         solver_options=solver_options,
-    #         solver_dir=tmpdir,
-    #         extra_functionality=set_coordinates,
-    #         keep_references=True,
-    #         keep_shadowprices=True,
-    #     )
-    # else:
-    #     # TODO: Update this to linopy.
-    #     ilopf(
-    #         m,
-    #         solver_name=solver_name,
-    #         solver_options=solver_options,
-    #         solver_dir=tmpdir,
-    #         extra_functionality=set_coordinates,
-    #         track_iterations=solving_options.get("track_iterations", False),
-    #         min_iterations=solving_options.get("min_iterations", 1),
-    #         max_iterations=solving_options.get("max_iterations", 6),
-    #         keep_references=True,
-    #         keep_shadowprices=True,
-    #     )
-    #     # `ilopf` doesn't give us any optimisation status or
-    #     # termination condition, and simply crashes if any
-    #     # optimisation fails.
-    #     status = "ok"
     if status == "ok":
         p_str = "_".join(map(lambda t: f"{t[0]}:{t[1]:.3f}", point.items()))
         print(f"Optimisation {num_iter} successful, exporting to {p_str}.nc")
@@ -308,6 +250,3 @@ if __name__ == "__main__":
     sampled_vertices = pd.concat(vertices).to_csv(snakemake.output.sampled_vertices)
     sampled_metrics = pd.concat(metrics).to_csv(snakemake.output.sampled_metrics)
     
-
-    # Touch the output flag file to indicate that we are done
-    Path(snakemake.output.flag).touch()
