@@ -31,7 +31,7 @@ near_opt_approx:
   # changes by less than `conv_epsilon` percent for any `conv_iterations` 
   # consecutive iterations, or after `iterations` iterations at most. 
   # Number of iterations.
-  iterations: 1500
+  iterations: 100
   # Convergence method, either "centre" or "volume".
   conv_method: "volume"
   # Convergence epsilon in percent.
@@ -61,6 +61,7 @@ near_opt_approx:
 
 # Specification of the sample points we want from the approximated near-optimal space.
 sample:
+# Note that all these level sets trigger the computation of a near-optimal space with the above number of iterations specified in near_opt_approx.
   level_sets: 
   - {min_level: 0.01, step: 0.01, max_level: 0.05, samples: 500} # only left included
   - {min_level: 0.05, step: 0.01, max_level: 0.1, samples: 1000} # only left included

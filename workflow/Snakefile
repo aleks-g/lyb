@@ -362,35 +362,65 @@ rule compute_near_opt:
         "scripts/compute_near_opt.py"
 
 
-# rule sample_near-opt_space:
-#     input:
-#         network=os.path.join(networks_dir, "{spec}.nc"),
-#         near_opt=os.path.join(
-#             results_dir, "near_opt/{spec}_e{eps}_{scenarios_hash}.csv"
-#         ),
-#     params:
-#         num_samples=config["sample"]["num_sample"],
-#         num_parallel=config["sample"]["num_parallel"],
-#     output:
-#         os.path.join(
-#             results_dir,
-#             "samples",
-#             "{spec}_e{eps}_{scenarios_hash}",
-#             "flag.done",
-#         ),
-#     log:
-#         os.path.join(
-#             "logs", run_name, "samples/{spec}_e{eps}_{scenarios_hash}.log"
-#         ),
-#     conda:
-#         "envs/maa.fixed.yaml"
-#     resources:
-#         mem_mb=10000 * num_parallel,
-#         runtime=100 * (num_samples / num_parallel),
-#         disk_mb=2000 * num_parallel,
-#     retries: 3
-#     threads: num_parallel * grb_threads
-#     shadow:
-#         "copy-minimal"
-#     script:
-#         "scripts/sample_near-opt_space.py"
+def sample_resources(wildcards):
+    num_samples = 0
+    for level_set in config["sample"]["level_sets"]:
+        num_samples += level_set["samples"] * int((level_set["max_level"] - level_set["min_level"]) / level_set["step"])
+    runtime = 100 * (num_samples / config["sample"]["num_parallel"])
+    return runtime
+
+def sample_inputs(wildcards):
+    level_sets = config["sample"]["level_sets"]
+    slacks = []
+    for level_set in level_sets:
+        # multiple by 100 for numerical stability
+        slacks.extend(range(int(100 * level_set["min_level"]),
+                            int(100 * level_set["max_level"]),
+                            int(100 * level_set["step"])))
+    slacks = [s/100 for s in slacks]
+    return [os.path.join(
+            results_dir, f"near_opt/{wildcards.spec}_e{slack}uni_{wildcards.scenarios_hash}.csv"
+        ) for slack in slacks]
+
+
+rule sample_near_opt_space:
+    input:
+        network=os.path.join(results_dir, "optimum/{spec}.nc"),
+        near_opt=sample_inputs,
+    params:
+        num_parallel=config["sample"]["num_parallel"],
+    output:
+        flag = os.path.join(
+            results_dir,
+            "samples",
+            "{spec}_e{eps}_{scenarios_hash}",
+            "flag.done",
+        ),
+        samples = os.path.join(
+            results_dir,
+            "samples",
+            "{spec}_e{eps}_{scenarios_hash}",
+            "samples.csv",
+        ),
+        metrics = os.path.join(
+            results_dir,
+            "samples",
+            "{spec}_e{eps}_{scenarios_hash}",
+            "metrics.csv",
+        ),
+    log:
+        os.path.join(
+            "logs", run_name, "samples/{spec}_e{eps}_{scenarios_hash}.log"
+        ),
+    conda:
+        "envs/maa.fixed.yaml"
+    resources:
+        mem_mb=10000 * config["sample"]["num_parallel"],
+        runtime=sample_resources,
+        disk_mb=2000 * config["sample"]["num_parallel"],
+    # retries: 3
+    threads: config["sample"]["num_parallel"] * grb_threads
+    shadow:
+        "copy-minimal"
+    script:
+        "scripts/sample_near-opt_space.py"
