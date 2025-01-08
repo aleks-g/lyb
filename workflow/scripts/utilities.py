@@ -60,6 +60,12 @@ def get_basis_variables(n: pypsa.Network, basis: dict) -> OrderedDict:
                     .loc[n.df(spec["c"])["carrier"] == spec["carrier"]]
                     .index
                 ]
+                if "index" in spec:
+                vars = vars.loc[
+                    n.df(spec["c"])
+                    .loc[(n.df(spec["c"])["index"] == spec["index"]) & (n.df(spec["c"])["carrier"] == spec["carrier"])]
+                ]
+
 
             # Extract coefficients.
             coeffs = pd.Series(1, index=vars.index)
@@ -118,6 +124,11 @@ def translate_basis_variables(n: pypsa.Network, basis: dict) -> dict:
                     n.df(spec["c"])
                     .loc[n.df(spec["c"])["carrier"] == spec["carrier"]]
                     .index
+                ]
+                if "index" in spec:
+                vars = vars.loc[
+                    n.df(spec["c"])
+                    .loc[(n.df(spec["c"])["index"] == spec["index"]) & (n.df(spec["c"])["carrier"] == spec["carrier"])]
                 ]
             # Extract coefficients.
             label = [c for c in vars.coords][0]
@@ -268,6 +279,13 @@ class BasisCapacities:
                         caps = n.df(spec["c"]).loc[
                             n.df(spec["c"])["carrier"] == spec["carrier"]
                         ][v]
+                        # Additionally filter by index
+                        if "index" in spec:
+                            caps = n.df(spec["c"]).loc[
+                                (n.df(spec["c"])["index"] == spec["index"])
+                                & (n.df(spec["c"])["carrier"] == spec["carrier"])
+                            ][v]
+
                     # Extract the coefficients.
                     coeffs = pd.Series(1, index=caps.index, name="coeffs")
                     if "weight" in spec:
