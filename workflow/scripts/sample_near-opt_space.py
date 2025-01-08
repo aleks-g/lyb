@@ -98,13 +98,44 @@ def compute_metrics(n: pypsa.Network, level: float) -> pd.Series:
     metrics = pd.Series(index=metrics_opts.keys(), dtype=float)
     for metric in metrics_opts:
         if metric == "electricity_price":
-            metrics[metric] = n.buses_t.marginal_price.mean()
+            metrics[metric] = n.buses_t.marginal_price.loc[:,"Central electric bus"].mean()
+        elif metric == "heat_price":
+            metrics[metric] = n.buses_t.marginal_price.loc[:,"Central heat bus"].mean()
+        elif metric == "emissions":
+            diesel_i = n.generators.index[n.generators.carrier == "Diesel"]
+            metrics[metric] = (n.generators_t.p[diesel_i] / network.generators.loc[diesel_i, "efficiency"]).sum().sum() * 0.254
         elif metric == "visual_impact":
-            metrics[metric] = n.generators_t.p_nom_opt.sum()
+            metrics[metric] = n.generators[n.generators.carrier == "Wind"].p_nom_opt.sum() / 4.2 # number of 4.2 MW turbines
         elif metric == "land_use":
-            metrics[metric] = n.generators_t.p_nom_opt.sum()
-        elif metric == "security":
-            metrics[metric] = n.generators_t.p_nom_opt.sum()
+            bioenergy_i = n.generators.index[n.generators.carrier.isin([ "Bio-fuel", "Pellets"])]
+            ammonia_i = n.generators.index[n.generators.carrier == "NH3"]
+            wind_area = n.generators.loc[n.generators.carrier == "Wind", "p_nom_opt"].sum() * 18000
+            solar_area = n.generators.loc[n.generators.carrier == "Solar", "p_nom_opt"].sum() * 50505
+            bioenergy_area = (n.generators.loc[n.generators.carrier == "NH3", "p_nom_opt"].sum() + n.generators.loc[n.generators.carrier == "Bio-fuel", "p_nom_opt"] + n.generators.loc[n.generators.carrier == "Pellets", "p_nom_opt"]).sum() * 25 # assume same value as for diesel
+            diesel_area = n.generators.loc[n.generators.carrier == "Diesel", "p_nom_opt"].sum() * 25 
+            bioenergy_gen_area = n.generators_t.p[bioenergy_i].sum().sum() * 12.65
+            ammonia_gen_area = n.generators_t.p[ammonia_i].sum().sum() * 2.28
+            battery_area = n.stores.loc[n.stores.carrier == "AC", "e_nom_opt"].sum() * 6.25 # battery
+            heat_area = n.stores.loc[n.stores.carrier == "Heat", "e_nom_opt"].sum() * 1.556
+            metrics[metric] = wind_area + solar_area + bioenergy_area + diesel_area + bioenergy_gen_area + ammonia_gen_area + battery_area + heat_area
+        elif metric == "vulnerability":
+            # Share_VRE
+            share_vre = n.generators_t.p[["Solar PV", "Wind"]].sum().sum()/n.generators_t.p.sum().sum()
+
+            # Share imports
+            imported_i = n.generators.index[n.generators.carrier.isin(["Diesel", "NH3", "Bio-fuel", "Pellets"])]
+            share_imports = n.generators_t.p[imported_i].sum().sum()/n.generators_t.p.sum().sum()
+
+            # Complexity of system: count generation technologies with a capacity of at least 1 MW, grouped by carrier (max. 6 carriers)
+            complexity = 1/6 * len(((n.generators.groupby("carrier").sum())[n.generators.groupby("carrier").sum()["p_nom_opt"] > 1]).index)
+
+            # Heat storage, relative to 2 weeks of winter heat load or 1 month during the summer (4 GWh)
+            heat_storage = n.stores.loc[n.stores.carrier == "Heat", "e_nom_opt"].sum()/4000
+
+
+            metrics[metric] = 1 - (
+               0.2 * (1 - share_vre) + 0.5*(1 - share_imports) + 0.2 * (1 - complexity) + 0.2 * (min(1,heat_storage))
+            )
         elif metric == "slack":
             metrics[metric] = level
         else:
