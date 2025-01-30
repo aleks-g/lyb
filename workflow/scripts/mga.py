@@ -21,8 +21,9 @@ from multiprocessing import Pool, get_context
 from pathlib import Path
 
 import numpy as np
-from utilities import get_basis_values, solve_network_in_direction, optimize_near_opt
-from workflow_utilities import parse_net_spec, configure_logging
+
+from utilities import get_basis_values, optimize_near_opt
+from workflow_utilities import configure_logging
 
 # Ignore futurewarnings raised by pandas from inside pypsa, at least
 # until the warning is fixed. This needs to be done _before_ pypsa and
@@ -86,7 +87,6 @@ def mga(
     # Make a copy of the input network so we do not modify the arguments.
     m = n.copy()
     m.config = n.config
-    m.opts = n.opts
     m.objective = n.objective
 
     # Prepare the near-optimal feasible space, represented by a
@@ -106,9 +106,19 @@ def mga(
     descriptions = ["min_" + c for c in comps] + ["max_" + c for c in comps]
     # Start a pool of worker processes:
     logging.info("Starting MGA optimisations.")
+    solving_config = m.config["solving"]
     with get_context("spawn").Pool(num_parallel_solvers) as pool:
         args = [
-            (m, d, basis, obj_bound, debug_dir, desc)
+            (
+                snakemake.input.network,
+                solving_config,
+                d,
+                basis,
+                obj_bound,
+                debug_dir,
+                desc,
+                n.objective,
+            )
             for d, desc in zip(mga_directions, descriptions)
         ]
         results = pool.starmap_async(mga_worker, args).get()
@@ -122,12 +132,14 @@ def mga(
 
 
 def mga_worker(
-    n: pypsa.Network,
+    network_path: str,
+    solving_config: dict,
     direction: np.array,
     basis: OrderedDict,
     obj_bound: float,
     debug_dir: str,
     description: str,
+    objective: float,
 ):
     """Run MGA in given basis with maximum objective `obj_bound` in parallel."""
     # Log the start of this iteration. Note that we cannot really use
@@ -137,15 +149,12 @@ def mga_worker(
     worker_name = multiprocessing.current_process().name
     print(f"{worker_name}: Solving for {description}...")
 
-    m = n.copy()
-    m.config = n.config
-    m.opts = n.opts
-    m.objective = n.objective
+    # Load the network anew
+    m = pypsa.Network(network_path)
+    m.objective = objective
+    m.config = {"solving": solving_config}
     # Solve the network.
     t = time.time()
-    # status, termination_condition = solve_network_in_direction(
-    #     m, direction, basis, obj_bound
-    # )
     status, termination_condition, r = optimize_near_opt(m, direction, basis, obj_bound)
     solve_time = round(time.time() - t)
     print(f"{worker_name}: Finished solving for {description} in {solve_time} seconds")
@@ -155,11 +164,6 @@ def mga_worker(
     try:
         r.export_to_netcdf(
             os.path.join(debug_dir, f"{description}.nc"),
-            # compression={
-            #     "complevel": 1,
-            #     "zlib": True,
-            #     "least_significant_digit": 3,
-            # },
         )
     except Exception as e:
         print(f"{worker_name}: Failed to export network for {description}: {e}")
@@ -168,7 +172,7 @@ def mga_worker(
     # return nothing. Unsuccessful solves can happen sporadically due
     # to, for example, numerical issues.
     if status == "ok":
-        return get_basis_values(m, basis)
+        return get_basis_values(r, basis)
     else:
         # If the status is not "ok" (in which case it's "warning"),
         # it's possible that the network still contains useful but
@@ -180,7 +184,7 @@ def mga_worker(
                 f"{worker_name}: Suboptimal solution for {description};"
                 " still using results."
             )
-            return get_basis_values(m, basis)
+            return get_basis_values(r, basis)
         else:
             print(f"{worker_name}: Optimisation unsuccessful: ignoring results.")
             return None
@@ -196,16 +200,14 @@ if __name__ == "__main__":
 
     # Load the network and solving options.
     n = pypsa.Network(snakemake.input.network)
-
-    # Attach solving configuration to the network.
-    n.config = snakemake.config["pypsa-longyearbyen"]
-    n.opts = parse_net_spec(snakemake.wildcards.spec)["opts"].split("-")
+    n.config = snakemake.config
 
     # Load other inputs (the optimal point, the near-optimality
     # constraint) to the MGA computation.
     opt_point = pd.read_csv(snakemake.input.optimum, index_col=0)
-    with open(snakemake.input.obj_bound, "r") as f:
-        obj_bound = float(f.read())
+    with open(snakemake.input.opt_obj, "r") as f:
+        opt_obj = float(f.read())
+    obj_bound = opt_obj * (1 + float(snakemake.wildcards.eps))
 
     # Perform MGA to get a number of points on the boundary of the
     # projected near-optimal feasible space.

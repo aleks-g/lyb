@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Collection, Generic, List, TypeVar
 
 import numpy as np
+from scipy.spatial import ConvexHull
+
 from geometry import (
     ch_centre,
     facet_normals,
@@ -30,9 +32,8 @@ from geometry import (
     lhc_random_hypersphere_sampler,
     uniform_random_hypersphere_sampler,
 )
-from scipy.spatial import ConvexHull
-from utilities import get_basis_values, solve_network_in_direction, optimize_near_opt
-from workflow_utilities import parse_net_spec, configure_logging
+from utilities import get_basis_values, optimize_near_opt
+from workflow_utilities import configure_logging
 
 # Ignore futurewarnings raised by pandas from inside pypsa, at least
 # until the warning is fixed. This needs to be done _before_ pypsa and
@@ -180,7 +181,6 @@ def compute_near_opt(
     m: pypsa.Network
     m = n.copy()
     m.config = n.config
-    m.opts = n.opts
     m.objective = n.objective
 
     # Load the points generated during MGA. This dataframe is indexed
@@ -343,7 +343,8 @@ def compute_near_opt(
         for d in directions:
             args = (
                 queue,
-                m,
+                snakemake.input.network,
+                n.config["solving"],
                 d,
                 basis,
                 obj_bound,
@@ -511,7 +512,8 @@ def compute_near_opt(
                         d = d / np.linalg.norm(d)
                         args = (
                             queue,
-                            m,
+                            snakemake.input.network,
+                            n.config["solving"],
                             d,
                             basis,
                             obj_bound,
@@ -563,7 +565,8 @@ def compute_near_opt(
 
 def solve_worker(
     queue: Queue,
-    n: pypsa.Network,
+    network_path: str,
+    solving_config: dict,
     dir: np.array,
     basis: OrderedDict,
     obj_bound: float,
@@ -586,11 +589,8 @@ def solve_worker(
 
     # Do the optimisation in the given direction.
     t = time.time()
-    r = n.copy()
-    r.config = n.config
-    r.opts = n.opts
-    r.objective = n.objective
-    # status, _ = solve_network_in_direction(r, dir, basis, obj_bound)
+    r = pypsa.Network(network_path)
+    r.config = {"solving": solving_config}
     status, _, wr = optimize_near_opt(r, dir, basis, obj_bound)
     solve_time = round(time.time() - t)
     print(f"{worker_name}: Finishing optimisation in {solve_time} seconds.")
@@ -971,18 +971,16 @@ if __name__ == "__main__":
 
     # Load the network and solving options.
     n = pypsa.Network(snakemake.input.network)
-
-    # Attach solving configuration to the network.
-    n.config = snakemake.config["pypsa-longyearbyen"]
-    n.opts = parse_net_spec(snakemake.wildcards.spec)["opts"].split("-")
+    n.config = snakemake.config
 
     # Load the points generated during MGA.
     mga_space = pd.read_csv(snakemake.input.mga_space, index_col=0)
 
     # Depending on the 'eps' wildcard, determine the cutoff of the
     # near-optimal feasible space.
-    with open(snakemake.input.obj_bound, "r") as f:
-        obj_bound = float(f.read())
+    with open(snakemake.input.opt_obj, "r") as f:
+        opt_obj = float(f.read())
+    obj_bound = opt_obj * (1 + float(snakemake.wildcards.eps))
 
     # Compute the near-optimal feasible space.
     near_opt = compute_near_opt(

@@ -10,7 +10,7 @@ import warnings
 from pathlib import Path
 
 from utilities import get_basis_values
-from workflow_utilities import parse_net_spec, configure_logging
+from workflow_utilities import configure_logging
 
 # Ignore futurewarnings raised by pandas from inside pypsa, at least
 # until the warning is fixed. This needs to be done _before_ pypsa and
@@ -26,14 +26,11 @@ if __name__ == "__main__":
 
     # Load the network and solving options.
     n = pypsa.Network(snakemake.input.network)
-    solver_name = snakemake.config["pypsa-longyearbyen"]["solving"]["solver"]["name"]
-    tmpdir = snakemake.config["pypsa-longyearbyen"]["solving"].get("tmpdir", None)
+    solver_name = snakemake.config["solving"]["solver"].pop("name")
+    tmpdir = snakemake.config["solving"].get("tmpdir", None)
     if tmpdir is not None:
         Path(tmpdir).mkdir(parents=True, exist_ok=True)
-
-    # Add to network for extra_functionality.
-    n.config = snakemake.config["pypsa-longyearbyen"]
-    n.opts = parse_net_spec(snakemake.wildcards.spec)["opts"].split("-")
+    solver_options = snakemake.config["solving"]["solver"]
 
     # Solve the network for the cost optimum and then get its
     # coordinates in the basis.
@@ -42,7 +39,7 @@ if __name__ == "__main__":
     # Do not need to have iterations, as there is no transmission.
     status, condition = n.optimize(
         solver_name=solver_name,
-        # solver_options=solver_options,
+        solver_options=solver_options,
         assign_all_duals=True,
         solver_dir=tmpdir,
     )

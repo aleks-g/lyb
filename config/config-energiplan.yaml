@@ -5,13 +5,6 @@
 # The name needs to match the filename of this config.
 name: "energiplan"
 
-scenario:
-  eps: "0.05uni"
-  simpl: ""
-  planning_horizon: "2050"
-  opts: ""
-  year: "2015"
-
 # The following config section relates to how the near-optimal
 # feasible space is approximated.
 near_opt_approx:
@@ -24,14 +17,15 @@ near_opt_approx:
   directions_angle_separation: 45
   # The number of parallel solvers used in the near-optimal feasible
   # space approximation.
-  num_parallel_solvers: 10
+  num_parallel_solvers: 8
 
   # Convergence configuration. All in all, the below means that the
   # near-optimal space approximation will terminate when the volume
   # changes by less than `conv_epsilon` percent for any `conv_iterations` 
   # consecutive iterations, or after `iterations` iterations at most. 
   # Number of iterations.
-  iterations: 100
+  # iterations: 100
+  iterations: 10
   # Convergence method, either "centre" or "volume".
   conv_method: "volume"
   # Convergence epsilon in percent.
@@ -62,7 +56,7 @@ near_opt_approx:
 # Specification of the sample points we want from the approximated near-optimal space.
 sample:
 # Note that all these level sets trigger the computation of a near-optimal space with the above number of iterations specified in near_opt_approx.
-  level_sets: 
+  level_sets:
   - {min_level: 0.01, step: 0.01, max_level: 0.1, samples: 3000} # only left included
   - {min_level: 0.1, step: 0.02, max_level: 0.2, samples: 3000}
   - {min_level: 0.2, step: 0.1, max_level: 0.5, samples: 3000}
@@ -81,22 +75,21 @@ sample:
 # Specification of the basis we project the near-optimal feasible space onto. 
 projection:
   wind:
-  - {c: "Generator", v: "p_nom", carrier: "Wind", weight: "capital_cost", scale_by_years: True}
+  - {c: "Generator", v: "p_nom", carrier: "Wind", weight: "capital_cost"}
   solar:
-  - {c: "Generator", v: "p_nom", carrier: "Solar", weight: "capital_cost", scale_by_years: True}
+  - {c: "Generator", v: "p_nom", carrier: "Solar", weight: "capital_cost"}
   h2:
-  - {c: "Store", v: "e_nom", carrier: "H2", weight: "capital_cost", scale_by_years: True}
-  - {c: "Link", v: "p_nom", carrier: "H2", weight: "capital_cost", scale_by_years: True}
-  - {c: "Link", v: "p_nom", carrier: "AC", index: "H2 electrolyser", weight: "capital_cost", scale_by_years: True}
+  - {c: "Store", v: "e_nom", carrier: "H2", weight: "capital_cost"}
+  - {c: "Link", v: "p_nom", index: "H2 electrolyser", weight: "capital_cost"}
+  - {c: "Link", v: "p_nom", index: "H2 fuel cell", weight: "capital_cost"}
   green-imports:
-  - {c: "Generator", v: "p_nom", carrier: "NH3", weight: "capital_cost", scale_by_years: True}
-  - {c: "Generator", v: "p_nom", carrier: "Bio-fuel", weight: "capital_cost", scale_by_years: True} 
-  - {c: "Generator", v: "p_nom", carrier: "Pellets", weight: "capital_cost", scale_by_years: True} 
+  - {c: "Generator", v: "p_nom", carrier: "NH3", weight: "capital_cost"}
+  - {c: "Generator", v: "p_nom", carrier: "Bio-fuel", weight: "capital_cost"} 
+  - {c: "Generator", v: "p_nom", carrier: "Pellets", weight: "capital_cost"}
   heat-storage:
-  - {c: "Link", v: "p_nom", carrier: "Heat", index: "Thermos charging", weight: "capital_cost", scale_by_years: True}
-  - {c: "Link", v: "p_nom", carrier: "Heat", index: "Thermos discharging", weight: "capital_cost", scale_by_years: True}
-  - {c: "Store", v: "e_nom", carrier: "Heat", index: "Thermos", weight: "capital_cost", scale_by_years: True}
-  # demand:
+  - {c: "Link", v: "p_nom", index: "Geothermal heat pump", weight: "capital_cost"}
+  - {c: "Store", v: "e_nom", index: "Thermos", weight: "capital_cost"}
+  - {c: "Store", v: "e_nom", index: "Geothermal storage", weight: "capital_cost"}
 
 # Provide some readable labels of the above dimensions for figures.
 projection_labels:
@@ -112,26 +105,19 @@ logging:
   format: "%(asctime)s %(levelname)s %(module)s - %(funcName)s: %(message)s"
   datefmt: "%Y-%m-%d %H:%M:%S"
 
-# The following section is used as pypsa-longyearbyen configuration (updating its default config).
-pypsa-longyearbyen:
-  #costs:
-  #storage:
-  #system:
-
-  #snapshots:
-  solving:
-    tmpdir: "./tmp"
+solving:
+  tmpdir: "./tmp"
+  threads: 2
+  solver:
+    name: gurobi
     threads: 2
-    solver:
-      name: gurobi
-      threads: 4
-      methods: 2
-      crossover: 0
-      BarConvTol: 1.e-5
-      FeasibilityTol: 1.e-6
-      AggFill: 0
-      PreDual: 0
-      GURO_PAR_BARDENSETHRESH: 200
+    method: 2
+    crossover: 0
+    BarConvTol: 1.e-5
+    FeasibilityTol: 1.e-6
+    AggFill: 0
+    PreDual: 0
+    GURO_PAR_BARDENSETHRESH: 200
 
 
 
