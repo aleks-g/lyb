@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023 Koen van Greevenbroek & Aleksander Grochowicz
+# SPDX-FileCopyrightText: 2025 Koen van Greevenbroek & Aleksander Grochowicz
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -9,7 +9,6 @@ README.
 
 """
 
-import copy
 import logging
 import multiprocessing
 import os
@@ -22,8 +21,6 @@ from pathlib import Path
 from typing import Collection, Generic, List, TypeVar
 
 import numpy as np
-from scipy.spatial import ConvexHull
-
 from geometry import (
     ch_centre,
     facet_normals,
@@ -32,6 +29,7 @@ from geometry import (
     lhc_random_hypersphere_sampler,
     uniform_random_hypersphere_sampler,
 )
+from scipy.spatial import ConvexHull
 from utilities import get_basis_values, optimize_near_opt
 from workflow_utilities import configure_logging
 
@@ -385,7 +383,7 @@ def compute_near_opt(
                     pd.DataFrame(probed_directions, columns=points.columns).to_csv(
                         os.path.join(debug_dir, "probed_directions.csv")
                     )
-                except:
+                except Exception:
                     logging.warning(
                         "Could not write points or probed direction to debug directory."
                     )
@@ -423,7 +421,7 @@ def compute_near_opt(
                 )
                 try:
                     iteration_data.to_csv(os.path.join(debug_dir, "debug.csv"))
-                except:
+                except Exception:
                     logging.warning("Could not write debug.csv file.")
 
                 # Evaluate convergence criteria. We need at least 2

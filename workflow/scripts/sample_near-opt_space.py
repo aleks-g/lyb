@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2024 Aleksander Grochowicz & Koen van Greevenbroek
+# SPDX-FileCopyrightText: 2025 Aleksander Grochowicz & Koen van Greevenbroek
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -6,28 +6,18 @@
 Sample solutions in the near-optimal feasible space.
 """
 
-import copy
 import logging
-import multiprocessing
 import os
-import time
-import warnings
 from collections import OrderedDict
 from itertools import islice, product
-from multiprocessing import Pool, get_context
+from multiprocessing import get_context
 from pathlib import Path
 
-# Suppress future warnings from pandas, as this should be fixed in
-# most recent PyPSA versions.
-warnings.simplefilter("ignore", FutureWarning)
-
-import linopy
 import numpy as np
 import pandas as pd
 import pypsa
-from scipy.spatial import ConvexHull
-
 from geometry import ch_centre, filter_vectors_auto, uniform_random_hypersphere_sampler
+from scipy.spatial import ConvexHull
 from utilities import translate_basis_variables
 from workflow_utilities import configure_logging
 

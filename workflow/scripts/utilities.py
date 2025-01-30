@@ -1,15 +1,10 @@
-# SPDX-FileCopyrightText: 2023 Koen van Greevenbroek & Aleksander Grochowicz
+# SPDX-FileCopyrightText: 2025 Koen van Greevenbroek & Aleksander Grochowicz
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Simple utility functions for working with PyPSA networks."""
 
-import copy
-import logging
-import os
-import time
 from collections import OrderedDict
-from numbers import Real
 from pathlib import Path
 from typing import Sequence
 
@@ -17,11 +12,7 @@ import linopy
 import numpy as np
 import pandas as pd
 import pypsa
-from pypsa.components import component_attrs, components
-from pypsa.descriptors import get_active_assets, get_extendable_i
-from pypsa.descriptors import get_switchable_as_dense as get_as_dense
-from pypsa.descriptors import nominal_attrs
-from pypsa.linopt import write_bound, write_objective
+from pypsa.descriptors import get_extendable_i, nominal_attrs
 
 marginal_attr = {"Generator": "p", "Link": "p", "Store": "p", "StorageUnit": "p"}
 
@@ -206,8 +197,6 @@ def optimize_near_opt(
 # This function is adapted from pypsa.linopf and updated to linopy. Later updated to pypsa.optimize.
 def get_objective(n, sns):
     """Return the objective function as a linear expression."""
-
-    weighting = n.snapshot_weightings.objective.loc[sns]
 
     total = ""
 

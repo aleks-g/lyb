@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023 Koen van Greevenbroek & Aleksander Grochowicz
+# SPDX-FileCopyrightText: 2025 Koen van Greevenbroek & Aleksander Grochowicz
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -8,13 +8,8 @@
 import copy
 import hashlib
 import json
-import os
-import re
 import sys
-from os.path import join
 from pathlib import Path
-
-import yaml
 
 
 def hash_config(configuration: dict):

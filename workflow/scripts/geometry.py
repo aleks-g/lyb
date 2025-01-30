@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023 Koen van Greevenbroek & Aleksander Grochowicz
+# SPDX-FileCopyrightText: 2025 Koen van Greevenbroek & Aleksander Grochowicz
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 

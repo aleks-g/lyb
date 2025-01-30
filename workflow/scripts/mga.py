@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023 Koen van Greevenbroek & Aleksander Grochowicz
+# SPDX-FileCopyrightText: 2025 Koen van Greevenbroek & Aleksander Grochowicz
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -10,18 +10,16 @@ of the near-optimal feasible space.
 
 """
 
-import copy
 import logging
 import multiprocessing
 import os
 import time
 import warnings
 from collections import OrderedDict
-from multiprocessing import Pool, get_context
+from multiprocessing import get_context
 from pathlib import Path
 
 import numpy as np
-
 from utilities import get_basis_values, optimize_near_opt
 from workflow_utilities import configure_logging
 
